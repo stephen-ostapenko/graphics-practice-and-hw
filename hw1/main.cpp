@@ -15,6 +15,7 @@
 #include <map>
 #include <atomic>
 #include <unistd.h>
+#include <cassert>
 
 std::string to_string(std::string_view str) {
     return std::string(str.begin(), str.end());
@@ -66,8 +67,6 @@ GLuint create_program(GLuint vertex_shader, GLuint fragment_shader) {
 const char vertex_shader_source[] =
 R"(#version 330 core
 
-uniform float time;
-
 layout (location = 0) in vec2 in_pos;
 layout (location = 1) in vec4 in_col;
 
@@ -76,6 +75,19 @@ out vec4 color;
 void main() {
     gl_Position = vec4(in_pos, 0.0, 1.0);
     color = in_col;
+}
+)";
+
+const char isol_vertex_shader_source[] =
+R"(#version 330 core
+
+layout (location = 0) in vec2 in_pos;
+
+out vec4 color;
+
+void main() {
+    gl_Position = vec4(in_pos, 0.0, 1.0);
+    color = vec4(0.0, 0.0, 0.0, 1.0);
 }
 )";
 
@@ -109,9 +121,14 @@ const size_t MAX_RES = 512;
 const size_t G_WIDTH = 800, G_HEIGHT = 600;
 
 typedef std::pair <float, float> v2;
-std::vector<v2> point_pos;
+#define x first
+#define y second
+
+std::vector<v2> point_pos, isol_point_pos;
 std::vector<color> point_col;
-std::vector <uint32_t> ind;
+std::vector <uint32_t> ind, isol_ind;
+std::vector <float> isol_vals = { 0.25, 0.5, 0.75 };
+std::vector <std::array <uint32_t, 5>> isol_point_id;
 
 float sqr(float x) {
     return x * x;
@@ -133,19 +150,15 @@ color calc_color(float x) {
     return color((uint8_t)(x * 255), 0, (uint8_t)((1 - x) * 255));
 }
 
-void update_pos_buffer(GLuint pos_vbo) {
-    glBindBuffer(GL_ARRAY_BUFFER, pos_vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(v2) * point_pos.size(), point_pos.data(), GL_DYNAMIC_DRAW);
+template <typename T>
+void update_vbo(GLuint vbo, std::vector <T> &data) {
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(T) * data.size(), data.data(), GL_STREAM_DRAW);
 }
 
-void update_col_buffer(GLuint col_vbo) {
-    glBindBuffer(GL_ARRAY_BUFFER, col_vbo);
-    glBufferData(GL_ARRAY_BUFFER, sizeof(color) * point_col.size(), point_col.data(), GL_STREAM_DRAW);
-}
-
-void update_ebo(GLuint ebo) {
+void update_ebo(GLuint ebo, std::vector <uint32_t> &ind) {
     glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(uint32_t) * ind.size(), ind.data(), GL_DYNAMIC_DRAW);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(uint32_t) * ind.size(), ind.data(), GL_STREAM_DRAW);
 }
 
 std::vector <uint32_t> gen_indices(size_t W_RES, size_t H_RES) {
@@ -166,7 +179,7 @@ std::vector <uint32_t> gen_indices(size_t W_RES, size_t H_RES) {
     return res;
 }
 
-void recalc_poses_and_colors(
+void recalc_positions_and_colors(
     float x1, float y1, float x2, float y2, float t,
     size_t W_RES, size_t H_RES,
     GLuint pos_vbo, GLuint col_vbo, GLuint ebo,
@@ -194,14 +207,51 @@ void recalc_poses_and_colors(
     }
 
     if (recalc_pos) {
-        update_pos_buffer(pos_vbo);
+        update_vbo(pos_vbo, point_pos);
         
         ind = gen_indices(W_RES, H_RES);
         ind.shrink_to_fit();
-        update_ebo(ebo);
+        update_ebo(ebo, ind);
     }
     if (recalc_col) {
-        update_col_buffer(col_vbo);
+        update_vbo(col_vbo, point_col);
+    }
+}
+
+void recalc_isoline_indices(size_t W_RES, size_t H_RES) {
+    size_t ptr = 0;
+    uint32_t nxt = 0;
+
+    isol_point_id[ptr][0] = nxt++;
+    isol_point_id[ptr][1] = nxt++;
+    isol_point_id[ptr][2] = nxt++;
+    isol_point_id[ptr][3] = nxt++;
+    isol_point_id[ptr][4] = nxt++;
+    ptr++;
+
+    for (size_t i = 1; i < W_RES; i++, ptr++) {
+        isol_point_id[ptr][0] = nxt++;
+        isol_point_id[ptr][1] = isol_point_id[ptr - 1][3];
+        isol_point_id[ptr][2] = nxt++;
+        isol_point_id[ptr][3] = nxt++;
+        isol_point_id[ptr][4] = nxt++;
+    }
+
+    for (size_t i = 1; i < H_RES; i++) {
+        isol_point_id[ptr][0] = nxt++;
+        isol_point_id[ptr][1] = nxt++;
+        isol_point_id[ptr][2] = isol_point_id[ptr - W_RES][0];
+        isol_point_id[ptr][3] = nxt++;
+        isol_point_id[ptr][4] = nxt++;
+        ptr++;
+
+        for (size_t j = 1; j < W_RES; j++, ptr++) {
+            isol_point_id[ptr][0] = nxt++;
+            isol_point_id[ptr][1] = isol_point_id[ptr - 1][3];
+            isol_point_id[ptr][2] = isol_point_id[ptr - W_RES][0];
+            isol_point_id[ptr][3] = nxt++;
+            isol_point_id[ptr][4] = nxt++;
+        }
     }
 }
 
@@ -216,7 +266,132 @@ void recalc_grid(
     point_col.resize(POINTS_CNT);
     point_col.shrink_to_fit();
 
-    recalc_poses_and_colors(x1, y1, x2, y2, t, W_RES, H_RES, pos_vbo, col_vbo, ebo, true, true);
+    recalc_positions_and_colors(x1, y1, x2, y2, t, W_RES, H_RES, pos_vbo, col_vbo, ebo, true, true);
+
+    isol_point_pos.resize(W_RES * (H_RES + 1) + (W_RES + 1) * H_RES + W_RES * H_RES);
+    isol_point_pos.shrink_to_fit();
+
+    isol_point_id.resize(W_RES * H_RES);
+    isol_point_id.shrink_to_fit();
+
+    recalc_isoline_indices(W_RES, H_RES);
+}
+
+bool eq(float a, float b) {
+    return (a - b) == 0.0f;
+}
+
+bool le(float a, float b) {
+    return (b - a) > 0;
+}
+
+v2 interpolate(v2 a1, float b1, v2 a2, float b2, float val) {
+    if (eq(b1, b2)) {
+        return { (a1.x + a2.x) / 2, (a1.y + a2.y) / 2 };
+    }
+
+    float k = (val - b1) / (b2 - b1);
+    return { a1.x + (a2.x - a1.x) * k, a1.y + (a2.y - a2.x) * k };
+}
+
+void update_isoline_triangle(
+    v2 p1, v2 p2, v2 p3,
+    uint32_t ind12, uint32_t ind23, uint32_t ind31,
+    float val, float t, std::vector <uint32_t> &ans
+) {
+    uint8_t mask = 0;
+    if (le(val, f(p1.x, p1.y, t))) {
+        mask |= 1;
+    }
+    if (le(val, f(p2.x, p2.y, t))) {
+        mask |= 2;
+    }
+    if (le(val, f(p3.x, p3.y, t))) {
+        mask |= 4;
+    }
+
+    v2 &ip12 = isol_point_pos[ind12];
+    v2 &ip23 = isol_point_pos[ind23];
+    v2 &ip31 = isol_point_pos[ind31];
+
+    if (mask == 0b000 || mask == 0b111) {
+        return;
+    }
+
+    if (mask == 0b001 || mask == 0b110) {
+        ip12 = interpolate(p1, f(p1.x, p1.y, t), p2, f(p2.x, p2.y, t), val);
+        ip31 = interpolate(p1, f(p1.x, p1.y, t), p3, f(p3.x, p3.y, t), val);
+
+        ans.push_back(ind12); ans.push_back(ind31);
+
+        return;
+    }
+
+    if (mask == 0b101 || mask == 0b010) {
+        ip12 = interpolate(p1, f(p1.x, p1.y, t), p2, f(p2.x, p2.y, t), val);
+        ip23 = interpolate(p2, f(p2.x, p2.y, t), p3, f(p3.x, p3.y, t), val);
+
+        ans.push_back(ind12); ans.push_back(ind23);
+
+        return;
+    }
+
+    if (mask == 0b100 || mask == 0b011) {
+        ip23 = interpolate(p3, f(p3.x, p3.y, t), p2, f(p2.x, p2.y, t), val);
+        ip31 = interpolate(p1, f(p1.x, p1.y, t), p3, f(p3.x, p3.y, t), val);
+
+        ans.push_back(ind23); ans.push_back(ind31);
+
+        return;
+    }
+
+    assert(0);
+}
+
+std::vector <uint32_t> build_isoline(float val, float t, size_t W_RES, size_t H_RES) {
+    std::vector <uint32_t> ans;
+
+    for (size_t i = 0, p_ptr = 0; i < H_RES; i++) {
+        for (size_t j = 0; j < W_RES; j++, p_ptr++) {
+            size_t w[4] = { p_ptr, p_ptr + 1, p_ptr + (W_RES + 1), p_ptr + (W_RES + 2) };
+            size_t cell_ptr = i * W_RES + j;
+
+            update_isoline_triangle(
+                point_pos[w[0]], point_pos[w[1]], point_pos[w[2]],
+                isol_point_id[cell_ptr][2], isol_point_id[cell_ptr][4], isol_point_id[cell_ptr][1],
+                val, t, ans
+            );
+
+            update_isoline_triangle(
+                point_pos[w[1]], point_pos[w[2]], point_pos[w[3]],
+                isol_point_id[cell_ptr][4], isol_point_id[cell_ptr][0], isol_point_id[cell_ptr][3],
+                val, t, ans
+            );
+        }
+
+        p_ptr++;
+    }
+
+    return ans;
+}
+
+void draw_isolines(
+    float t,
+    size_t W_RES, size_t H_RES,
+    GLuint isol_pos_vbo, GLuint isol_ebo, GLuint isol_vao,
+    GLuint isol_program
+) {
+    for (float val : isol_vals) {
+        isol_ind = build_isoline(val, t, W_RES, H_RES);
+
+        update_vbo(isol_pos_vbo, isol_point_pos);
+        update_ebo(isol_ebo, isol_ind);
+
+        glUseProgram(isol_program);
+        glBindVertexArray(isol_vao);
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, isol_ebo);
+        glDrawElements(GL_LINES, isol_ind.size(), GL_UNSIGNED_INT, (void*)0);
+    }
 }
 
 int main() try {
@@ -249,7 +424,7 @@ int main() try {
     if (!GLEW_VERSION_3_3)
         throw std::runtime_error("OpenGL 3.3 is not supported");
 
-    size_t W_RES = 8, H_RES = 8;
+    size_t W_RES = 16, H_RES = 16;
     size_t POINTS_CNT = (W_RES + 1) * (H_RES + 1);
 
     glViewport(0, 0, G_WIDTH, G_HEIGHT);
@@ -273,9 +448,23 @@ int main() try {
     glEnableVertexAttribArray(1);
     glVertexAttribPointer(1, 4, GL_UNSIGNED_BYTE, GL_TRUE, sizeof(color), (void*)0);
 
+    GLuint isol_pos_vbo;
+    glGenBuffers(1, &isol_pos_vbo);
+    GLuint isol_ebo;
+    glGenBuffers(1, &isol_ebo);
+
+    GLuint isol_vao;
+    glGenVertexArrays(1, &isol_vao);
+    glBindVertexArray(isol_vao);
+    glBindBuffer(GL_ARRAY_BUFFER, isol_pos_vbo);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(v2), (void*)0);
+    
     GLuint vertex_sh = create_shader(GL_VERTEX_SHADER, vertex_shader_source);
     GLuint fragment_sh = create_shader(GL_FRAGMENT_SHADER, fragment_shader_source);
+    GLuint isol_vertex_sh = create_shader(GL_VERTEX_SHADER, isol_vertex_shader_source);
     GLuint program = create_program(vertex_sh, fragment_sh);
+    GLuint isol_program = create_program(isol_vertex_sh, fragment_sh);
 
     glClearColor(0.8f, 0.8f, 1.f, 0.f);
     bool running = true;
@@ -340,7 +529,7 @@ int main() try {
             POINTS_CNT = (W_RES + 1) * (H_RES + 1);
             recalc_grid(X1, Y1, X2, Y2, time, W_RES, H_RES, POINTS_CNT, pos_vbo, col_vbo, ebo);
         } else {
-            recalc_poses_and_colors(X1, Y1, X2, Y2, time, W_RES, H_RES, pos_vbo, col_vbo, ebo);
+            recalc_positions_and_colors(X1, Y1, X2, Y2, time, W_RES, H_RES, pos_vbo, col_vbo, ebo);
         }
 
         glClear(GL_COLOR_BUFFER_BIT);
@@ -348,9 +537,9 @@ int main() try {
         glUseProgram(program);
         glBindVertexArray(vao);
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
-        glBindBuffer(GL_ARRAY_BUFFER, col_vbo);
-
         glDrawElements(GL_TRIANGLES, ind.size(), GL_UNSIGNED_INT, (void*)0);
+
+        draw_isolines(time, W_RES, H_RES, isol_pos_vbo, isol_ebo, isol_vao, isol_program);
 
         SDL_GL_SwapWindow(window);
     }
