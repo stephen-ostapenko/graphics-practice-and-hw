@@ -114,8 +114,8 @@ struct color {
     }
 };
 
-const int X1 = -4, X2 = 4;
-const int Y1 = -3, Y2 = 3;
+const float X1 = -4, X2 = 4;
+const float Y1 = -3, Y2 = 3;
 
 const size_t MAX_RES = 512;
 const size_t G_WIDTH = 800, G_HEIGHT = 600;
@@ -127,7 +127,7 @@ typedef std::pair <float, float> v2;
 std::vector<v2> point_pos, isol_point_pos;
 std::vector<color> point_col;
 std::vector <uint32_t> ind, isol_ind;
-std::vector <float> isol_vals = { 0.25, 0.5, 0.75 };
+std::vector <float> isol_vals = { 0.1, 0.25, 0.33, 0.5, 0.75, 0.9 };
 std::vector <std::array <uint32_t, 5>> isol_point_id;
 
 float sqr(float x) {
@@ -138,11 +138,19 @@ float sqr(float x) {
 float f(float x, float y, float t) {
     float x1 = cos(t / 5) + 2, y1 = sin(t / 5);
     float d1 = sqr(x - x1) + sqr(y - y1);
+
     float x2 = cos(t / 2) - 1, y2 = 2 * sin(t / 2);
     float d2 = sqr(x - x2) + sqr(y - y2);
-    return 1 / (std::min(d1, d2) + 1.0);
+
+    float x3 = 2 * cos(t / 3), y3 = 1.5 * sin(t / 4);
+    float d3 = sqr(x - x3) + sqr(y - y3);
+
+    return 1 / (std::min({ d1, d2, d3 }) + 1.0);
+    
     //return ((x * x + y * y) / 25 * sin(t / 5) + 1) / 2;
+    
     //return sqrt(x * x + y * y) / 5;
+    
     //return floor(abs(x + y)) / 10;
 }
 
@@ -291,14 +299,29 @@ v2 interpolate(v2 a1, float b1, v2 a2, float b2, float val) {
     }
 
     float k = (val - b1) / (b2 - b1);
-    return { a1.x + (a2.x - a1.x) * k, a1.y + (a2.y - a2.x) * k };
+    v2 ans = { a1.x + (a2.x - a1.x) * k, a1.y + (a2.y - a1.y) * k };
+
+    /*cerr << "===============" << endl;
+    cerr << k << " | " << val << endl;
+    cerr << a1.x << " " << a1.y << " | " << b1 << endl;
+    cerr << a2.x << " " << a2.y << " | " << b2 << endl;
+    cerr << ans.x << " " << ans.y << endl;*/
+    
+    return ans;
 }
 
 void update_isoline_triangle(
     v2 p1, v2 p2, v2 p3,
     uint32_t ind12, uint32_t ind23, uint32_t ind31,
+    float x1, float y1, float x2, float y2,
     float val, float t, std::vector <uint32_t> &ans
 ) {
+    float center_x = (x1 + x2) / 2, center_y = (y1 + y2) / 2;
+    float size_w = x2 - x1, size_h = y2 - y1;
+    p1 = { center_x + p1.x * size_w / 2, center_y + p1.y * size_h / 2 };
+    p2 = { center_x + p2.x * size_w / 2, center_y + p2.y * size_h / 2 };
+    p3 = { center_x + p3.x * size_w / 2, center_y + p3.y * size_h / 2 };
+
     uint8_t mask = 0;
     if (le(val, f(p1.x, p1.y, t))) {
         mask |= 1;
@@ -324,7 +347,7 @@ void update_isoline_triangle(
 
         ans.push_back(ind12); ans.push_back(ind31);
 
-        return;
+        //return;
     }
 
     if (mask == 0b101 || mask == 0b010) {
@@ -333,7 +356,7 @@ void update_isoline_triangle(
 
         ans.push_back(ind12); ans.push_back(ind23);
 
-        return;
+        //return;
     }
 
     if (mask == 0b100 || mask == 0b011) {
@@ -342,13 +365,31 @@ void update_isoline_triangle(
 
         ans.push_back(ind23); ans.push_back(ind31);
 
-        return;
+        //return;
     }
+
+    ip12 = { (ip12.x - center_x) / size_w * 2, (ip12.y - center_y) / size_h * 2 };
+    ip23 = { (ip23.x - center_x) / size_w * 2, (ip23.y - center_y) / size_h * 2 };
+    ip31 = { (ip31.x - center_x) / size_w * 2, (ip31.y - center_y) / size_h * 2 };
+
+    /*cerr << " ============= " << endl;
+    cerr << p1.x << " " << p1.y << endl;
+    cerr << p2.x << " " << p2.y << endl;
+    cerr << p3.x << " " << p3.y << endl;
+    cerr << " ------- " << endl;
+    cerr << ip12.x << " " << ip12.y << endl;
+    cerr << ip23.x << " " << ip23.y << endl;
+    cerr << ip31.x << " " << ip31.y << endl;*/
+    return;
 
     assert(0);
 }
 
-std::vector <uint32_t> build_isoline(float val, float t, size_t W_RES, size_t H_RES) {
+std::vector <uint32_t> build_isoline(
+    float val, float t,
+    float x1, float y1, float x2, float y2,
+    size_t W_RES, size_t H_RES
+) {
     std::vector <uint32_t> ans;
 
     for (size_t i = 0, p_ptr = 0; i < H_RES; i++) {
@@ -359,12 +400,14 @@ std::vector <uint32_t> build_isoline(float val, float t, size_t W_RES, size_t H_
             update_isoline_triangle(
                 point_pos[w[0]], point_pos[w[1]], point_pos[w[2]],
                 isol_point_id[cell_ptr][2], isol_point_id[cell_ptr][4], isol_point_id[cell_ptr][1],
+                x1, y1, x2, y2,
                 val, t, ans
             );
 
             update_isoline_triangle(
                 point_pos[w[1]], point_pos[w[2]], point_pos[w[3]],
                 isol_point_id[cell_ptr][4], isol_point_id[cell_ptr][0], isol_point_id[cell_ptr][3],
+                x1, y1, x2, y2,
                 val, t, ans
             );
         }
@@ -377,12 +420,13 @@ std::vector <uint32_t> build_isoline(float val, float t, size_t W_RES, size_t H_
 
 void draw_isolines(
     float t,
+    float x1, float y1, float x2, float y2,
     size_t W_RES, size_t H_RES,
     GLuint isol_pos_vbo, GLuint isol_ebo, GLuint isol_vao,
     GLuint isol_program
 ) {
     for (float val : isol_vals) {
-        isol_ind = build_isoline(val, t, W_RES, H_RES);
+        isol_ind = build_isoline(val, t, x1, y1, x2, y2, W_RES, H_RES);
 
         update_vbo(isol_pos_vbo, isol_point_pos);
         update_ebo(isol_ebo, isol_ind);
@@ -524,7 +568,7 @@ int main() try {
         if (!running)
             break;
 
-        float time = (float)clock() / CLOCKS_PER_SEC * 10;
+        float time = (float)clock() / CLOCKS_PER_SEC * 5;
         if (recalc) {
             POINTS_CNT = (W_RES + 1) * (H_RES + 1);
             recalc_grid(X1, Y1, X2, Y2, time, W_RES, H_RES, POINTS_CNT, pos_vbo, col_vbo, ebo);
@@ -539,7 +583,13 @@ int main() try {
         glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, ebo);
         glDrawElements(GL_TRIANGLES, ind.size(), GL_UNSIGNED_INT, (void*)0);
 
-        draw_isolines(time, W_RES, H_RES, isol_pos_vbo, isol_ebo, isol_vao, isol_program);
+        draw_isolines(
+            time,
+            X1, Y1, X2, Y2,
+            W_RES, H_RES,
+            isol_pos_vbo, isol_ebo, isol_vao,
+            isol_program
+        );
 
         SDL_GL_SwapWindow(window);
     }
