@@ -87,7 +87,7 @@ out vec4 color;
 
 void main() {
     gl_Position = vec4(in_pos, 0.0, 1.0);
-    color = vec4(0.0, 0.0, 0.0, 1.0);
+    color = vec4(0.0, 1.0, 0.0, 1.0);
 }
 )";
 
@@ -134,7 +134,7 @@ float sqr(float x) {
     return x * x;
 }
 
-// 0 <= f <= 1
+// 0 \le f \le 1
 float f(float x, float y, float t) {
     float x1 = cos(t / 5) + 2, y1 = sin(t / 5);
     float d1 = sqr(x - x1) + sqr(y - y1);
@@ -299,15 +299,7 @@ v2 interpolate(v2 a1, float b1, v2 a2, float b2, float val) {
     }
 
     float k = (val - b1) / (b2 - b1);
-    v2 ans = { a1.x + (a2.x - a1.x) * k, a1.y + (a2.y - a1.y) * k };
-
-    /*cerr << "===============" << endl;
-    cerr << k << " | " << val << endl;
-    cerr << a1.x << " " << a1.y << " | " << b1 << endl;
-    cerr << a2.x << " " << a2.y << " | " << b2 << endl;
-    cerr << ans.x << " " << ans.y << endl;*/
-    
-    return ans;
+    return { a1.x + (a2.x - a1.x) * k, a1.y + (a2.y - a1.y) * k };
 }
 
 void update_isoline_triangle(
@@ -346,8 +338,6 @@ void update_isoline_triangle(
         ip31 = interpolate(p1, f(p1.x, p1.y, t), p3, f(p3.x, p3.y, t), val);
 
         ans.push_back(ind12); ans.push_back(ind31);
-
-        //return;
     }
 
     if (mask == 0b101 || mask == 0b010) {
@@ -355,8 +345,6 @@ void update_isoline_triangle(
         ip23 = interpolate(p2, f(p2.x, p2.y, t), p3, f(p3.x, p3.y, t), val);
 
         ans.push_back(ind12); ans.push_back(ind23);
-
-        //return;
     }
 
     if (mask == 0b100 || mask == 0b011) {
@@ -364,25 +352,11 @@ void update_isoline_triangle(
         ip31 = interpolate(p1, f(p1.x, p1.y, t), p3, f(p3.x, p3.y, t), val);
 
         ans.push_back(ind23); ans.push_back(ind31);
-
-        //return;
     }
 
     ip12 = { (ip12.x - center_x) / size_w * 2, (ip12.y - center_y) / size_h * 2 };
     ip23 = { (ip23.x - center_x) / size_w * 2, (ip23.y - center_y) / size_h * 2 };
     ip31 = { (ip31.x - center_x) / size_w * 2, (ip31.y - center_y) / size_h * 2 };
-
-    /*cerr << " ============= " << endl;
-    cerr << p1.x << " " << p1.y << endl;
-    cerr << p2.x << " " << p2.y << endl;
-    cerr << p3.x << " " << p3.y << endl;
-    cerr << " ------- " << endl;
-    cerr << ip12.x << " " << ip12.y << endl;
-    cerr << ip23.x << " " << ip23.y << endl;
-    cerr << ip31.x << " " << ip31.y << endl;*/
-    return;
-
-    assert(0);
 }
 
 std::vector <uint32_t> build_isoline(
