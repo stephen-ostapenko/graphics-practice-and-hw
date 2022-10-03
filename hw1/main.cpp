@@ -127,7 +127,7 @@ typedef std::pair <float, float> v2;
 std::vector<v2> point_pos, isol_point_pos;
 std::vector<color> point_col;
 std::vector <uint32_t> ind, isol_ind;
-std::vector <float> isol_vals = { 0.1, 0.25, 0.33, 0.5, 0.75, 0.9 };
+std::vector <float> isol_vals = { 0.25, 0.5, 0.33, 0.9, 0.75, 0.1 };
 std::vector <std::array <uint32_t, 5>> isol_point_id;
 
 float sqr(float x) {
@@ -360,8 +360,8 @@ void update_isoline_triangle(
 }
 
 std::vector <uint32_t> build_isoline(
-    float val, float t,
     float x1, float y1, float x2, float y2,
+    float val, float t,
     size_t W_RES, size_t H_RES
 ) {
     std::vector <uint32_t> ans;
@@ -393,14 +393,15 @@ std::vector <uint32_t> build_isoline(
 }
 
 void draw_isolines(
-    float t,
-    float x1, float y1, float x2, float y2,
+    size_t isolines_cnt,
+    float x1, float y1, float x2, float y2, float t,
     size_t W_RES, size_t H_RES,
     GLuint isol_pos_vbo, GLuint isol_ebo, GLuint isol_vao,
     GLuint isol_program
 ) {
-    for (float val : isol_vals) {
-        isol_ind = build_isoline(val, t, x1, y1, x2, y2, W_RES, H_RES);
+    for (size_t i = 0; i < isolines_cnt; i++) {
+        float val = isol_vals[i];
+        isol_ind = build_isoline(x1, y1, x2, y2, val, t, W_RES, H_RES);
 
         update_vbo(isol_pos_vbo, isol_point_pos);
         update_ebo(isol_ebo, isol_ind);
@@ -444,6 +445,7 @@ int main() try {
 
     size_t W_RES = 16, H_RES = 16;
     size_t POINTS_CNT = (W_RES + 1) * (H_RES + 1);
+    size_t isolines_cnt = 1;
 
     glViewport(0, 0, G_WIDTH, G_HEIGHT);
 
@@ -519,6 +521,16 @@ int main() try {
                 }
                 recalc = true;
                 break;
+            case SDLK_o:
+                if (isolines_cnt > 0) {
+                    isolines_cnt--;
+                }
+                break;
+            case SDLK_p:
+                if (isolines_cnt < isol_vals.size()) {
+                    isolines_cnt++;
+                }
+                break;
             }
             break;
         case SDL_WINDOWEVENT: switch (event.window.event) {
@@ -558,8 +570,8 @@ int main() try {
         glDrawElements(GL_TRIANGLES, ind.size(), GL_UNSIGNED_INT, (void*)0);
 
         draw_isolines(
-            time,
-            X1, Y1, X2, Y2,
+            isolines_cnt,
+            X1, Y1, X2, Y2, time,
             W_RES, H_RES,
             isol_pos_vbo, isol_ebo, isol_vao,
             isol_program
