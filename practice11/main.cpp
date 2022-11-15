@@ -275,7 +275,6 @@ int main() try
     glGenTextures(1, &texture);
     glActiveTexture(GL_TEXTURE0);
     glBindTexture(GL_TEXTURE_2D, texture);
-    
     glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, tex_width, tex_height, 0, GL_RGBA, GL_UNSIGNED_BYTE, tex_data);
     glGenerateMipmap(GL_TEXTURE_2D);
     stbi_image_free(tex_data);
@@ -289,7 +288,7 @@ int main() try
     glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_1D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     std::vector<glm::vec4> color_palette = {
-        glm::vec4(0.f, 0.f, 0.f, 1.f), // black
+        glm::vec4(0.0, 0.0, 0.0, 1.0), // black
         glm::vec4(1.0, 0.0, 0.0, 1.0), // red
         glm::vec4(1.0, 0.5, 0.0, 1.0), // orange
         glm::vec4(1.0, 1.0, 0.0, 1.0), // yellow
