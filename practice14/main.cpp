@@ -16,7 +16,7 @@
 #include <random>
 #include <map>
 #include <cmath>
-#include <deque>
+#include <queue>
 
 #include <glm/vec3.hpp>
 #include <glm/mat4x4.hpp>
@@ -192,7 +192,10 @@ int main() try
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
     glBufferData(GL_ARRAY_BUFFER, input_model.buffer.size(), input_model.buffer.data(), GL_STATIC_DRAW);
 
-    std::vector <std::vector <glm::vec3>> translations(input_model.meshes.size(), std::vector <glm::vec3> (1024));
+    std::vector <std::vector <glm::vec3>> translations(input_model.meshes.size(), std::vector <glm::vec3> ());
+    for (auto &tr : translations) {
+        tr.reserve(1024);
+    }
 
     GLuint translations_vbo;
     glGenBuffers(1, &translations_vbo);
@@ -219,7 +222,7 @@ int main() try
 
         glEnableVertexAttribArray(3);
         glBindBuffer(GL_ARRAY_BUFFER, translations_vbo);
-        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), translations[i].data());
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(glm::vec3), 0);
         glVertexAttribDivisor(3, 1);
 
         vaos.push_back(vao);
@@ -254,7 +257,8 @@ int main() try
     glm::vec3 camera_position{0.f, 1.5f, 3.f};
     float camera_rotation = 0.f;
 
-    std::deque <GLuint> idle_q, occup_q;
+    std::queue <GLuint> idle_q;
+    std::vector <GLuint> occup_q;
 
     bool paused = false;
 
@@ -323,7 +327,7 @@ int main() try
         GLuint cur_q;
         if (idle_q.size()) {
             cur_q = idle_q.front();
-            idle_q.pop_front();
+            idle_q.pop();
         } else {
             glGenQueries(1, &cur_q);
         }
@@ -363,7 +367,6 @@ int main() try
 
         frustum fr(projection * view);
 
-        std::vector <int> obj_cnt(input_model.meshes.size(), 0);
         for (int i = -16; i < 16; i++) {
             for (int j = -16; j < 16; j++) {
                 glm::vec3 offset(i, 0.f, j);
@@ -373,31 +376,40 @@ int main() try
                 aabb ab(input_model.meshes[lod].min + offset, input_model.meshes[lod].max + offset);
 
                 if (intersect(fr, ab)) {
-                    translations[lod][obj_cnt[lod]++] = offset;
+                    translations[lod].push_back(offset);
                 }
             }
         }
 
         for (int i = 0; i < input_model.meshes.size(); i++) {
             glBindBuffer(GL_ARRAY_BUFFER, translations_vbo);
-            glBufferData(GL_ARRAY_BUFFER, obj_cnt[i] * sizeof(glm::vec3), translations[i].data(), GL_STATIC_DRAW);
+            glBufferData(GL_ARRAY_BUFFER, translations[i].size() * sizeof(glm::vec3), translations[i].data(), GL_STATIC_DRAW);
 
             auto const &mesh = input_model.meshes[i];
             glBindVertexArray(vaos[i]);
-            glDrawElementsInstanced(GL_TRIANGLES, mesh.indices.count, mesh.indices.type, reinterpret_cast<void *>(mesh.indices.view.offset), obj_cnt[i]);
+            glDrawElementsInstanced(GL_TRIANGLES, mesh.indices.count, mesh.indices.type, reinterpret_cast<void *>(mesh.indices.view.offset), translations[i].size());
         }
 
         glEndQuery(GL_TIME_ELAPSED);
 
         SDL_GL_SwapWindow(window);
 
+        int cnt = 0;
         for (int i = 0; i + 1 < input_model.meshes.size(); i++) {
-            std::cerr << obj_cnt[i] << " + ";
+            std::cerr << translations[i].size() << " + ";
+            cnt += translations[i].size();
         }
-        std::cerr << obj_cnt.back() << " = " << std::accumulate(obj_cnt.begin(), obj_cnt.end(), 0) << std::endl;
+        std::cerr << translations.back().size() << " = ";
+        cnt += translations.back().size();
 
-        for (auto iter = occup_q.begin(); iter != occup_q.end();) {
-            GLuint id = *iter;
+        std::cerr << cnt << std::endl;
+
+        for (auto &tr : translations) {
+            tr.clear();
+        }
+
+        for (int i = 0; i < occup_q.size(); i++) {
+            GLuint id = occup_q[i];
 
             GLint result;
             glGetQueryObjectiv(id, GL_QUERY_RESULT_AVAILABLE, &result);
@@ -407,9 +419,10 @@ int main() try
 
                 std::cerr << std::fixed << std::setprecision(6) << (float)t_elapsed / 1e9 << std::endl;
 
-                idle_q.push_back(id); iter = occup_q.erase(iter);
-            } else {
-                iter++;
+                idle_q.push(id);
+                std::swap(occup_q[i], occup_q.back());
+                occup_q.pop_back();
+                i--;
             }
         }
     }
