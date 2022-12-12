@@ -117,17 +117,33 @@ uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
 
+uniform mat4x3 bones[64];
+
 layout (location = 0) in vec3 in_position;
 layout (location = 1) in vec3 in_normal;
 layout (location = 2) in vec2 in_texcoord;
 
+layout (location = 3) in ivec4 in_joints;
+layout (location = 4) in vec4 in_weights;
+
 out vec3 normal;
 out vec2 texcoord;
 
+out vec4 weights;
+
 void main()
 {
-    gl_Position = projection * view * model * vec4(in_position, 1.0);
-    normal = mat3(model) * in_normal;
+    weights = in_weights;
+
+    mat4x3 average = bones[in_joints.x] * weights.x + \
+                     bones[in_joints.y] * weights.y + \
+                     bones[in_joints.z] * weights.z + \
+                     bones[in_joints.w] * weights.w;
+
+    average /= weights.x + weights.y + weights.z + weights.w;
+
+    gl_Position = projection * view * model * mat4(average) * vec4(in_position, 1.0);
+    normal = mat3(model) * mat3(average) * in_normal;
     texcoord = in_texcoord;
 }
 )";
@@ -137,22 +153,31 @@ R"(#version 330 core
 
 uniform sampler2D albedo;
 uniform vec4 color;
+uniform int use_texture;
 
 uniform vec3 light_direction;
+uniform vec3 light_color;
 
 layout (location = 0) out vec4 out_color;
 
 in vec3 normal;
 in vec2 texcoord;
 
+in vec4 weights;
+
 void main()
 {
-    vec4 albedo_color = texture(albedo, texcoord);
+    vec4 albedo_color;
+
+    if (use_texture == 1)
+        albedo_color = texture(albedo, texcoord);
+    else
+        albedo_color = color;
 
     float ambient = 0.4;
     float diffuse = max(0.0, dot(normalize(normal), light_direction));
 
-    out_color = vec4(albedo_color.rgb * (ambient + diffuse), albedo_color.a);
+    out_color = vec4(albedo_color.rgb * light_color * (ambient + diffuse), albedo_color.a);
 }
 )";
 
@@ -552,7 +577,7 @@ int main() try
 
     // ========================================================================================================
 
-    /*auto statmodel_vertex_shader = create_shader(GL_VERTEX_SHADER, statmodel_vertex_shader_source);
+    auto statmodel_vertex_shader = create_shader(GL_VERTEX_SHADER, statmodel_vertex_shader_source);
     auto statmodel_fragment_shader = create_shader(GL_FRAGMENT_SHADER, statmodel_fragment_shader_source);
     auto statmodel_program = create_program(statmodel_vertex_shader, statmodel_fragment_shader);
 
@@ -563,30 +588,17 @@ int main() try
     GLuint statmodel_color_location = glGetUniformLocation(statmodel_program, "color");
     GLuint statmodel_use_texture_location = glGetUniformLocation(statmodel_program, "use_texture");
     GLuint statmodel_light_direction_location = glGetUniformLocation(statmodel_program, "light_direction");
+    GLuint statmodel_light_color_location = glGetUniformLocation(statmodel_program, "light_color");
 
-    const std::string statmodel_model_path = project_root + "/frank/scene.gltf";
+    GLuint statmodel_bones_location = glGetUniformLocation(statmodel_program, "bones");
+
+    const std::string statmodel_model_path = project_root + "/wolf2/Wolf-Blender-2.82a.gltf";
 
     auto const statmodel_input_model = load_gltf(statmodel_model_path);
     GLuint statmodel_vbo;
     glGenBuffers(1, &statmodel_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, statmodel_vbo);
     glBufferData(GL_ARRAY_BUFFER, statmodel_input_model.buffer.size(), statmodel_input_model.buffer.data(), GL_STATIC_DRAW);
-
-    struct mesh
-    {
-        GLuint vao;
-        gltf_model::accessor indices;
-        gltf_model::material material;
-    };
-
-    auto setup_attribute = [](int index, gltf_model::accessor const & accessor, bool integer = false)
-    {
-        glEnableVertexAttribArray(index);
-        if (integer)
-            glVertexAttribIPointer(index, accessor.size, accessor.type, 0, reinterpret_cast<void *>(accessor.view.offset));
-        else
-            glVertexAttribPointer(index, accessor.size, accessor.type, GL_FALSE, 0, reinterpret_cast<void *>(accessor.view.offset));
-    };
 
     std::vector<mesh> statmodel_meshes;
     for (auto const & mesh : statmodel_input_model.meshes)
@@ -601,6 +613,8 @@ int main() try
         setup_attribute(0, mesh.position);
         setup_attribute(1, mesh.normal);
         setup_attribute(2, mesh.texcoord);
+        setup_attribute(3, mesh.joints, true);
+        setup_attribute(4, mesh.weights);
 
         result.material = mesh.material;
     }
@@ -628,7 +642,7 @@ int main() try
         stbi_image_free(data);
 
         statmodel_textures[*mesh.material.texture_path] = texture;
-    }*/
+    }
 
     // ========================================================================================================
 
@@ -860,12 +874,74 @@ int main() try
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-        std::vector <glm::mat4x3> bones(animodel_input_model.bones.size());
+        float statmodel_scale = 1.f;
+
+        std::vector <glm::mat4x3> statmodel_bones(statmodel_input_model.bones.size(), glm::mat3x4(statmodel_scale));
+
+        model = glm::mat4(1.f);
+
+        glUseProgram(statmodel_program);
+        glUniformMatrix4fv(statmodel_model_location, 1, GL_FALSE, reinterpret_cast<float *>(&model));
+        glUniformMatrix4fv(statmodel_view_location, 1, GL_FALSE, reinterpret_cast<float *>(&view));
+        glUniformMatrix4fv(statmodel_projection_location, 1, GL_FALSE, reinterpret_cast<float *>(&projection));
+        glUniform3fv(statmodel_light_direction_location, 1, reinterpret_cast<float *>(&light_direction));
+        glUniform3fv(statmodel_light_color_location, 1, reinterpret_cast<float *>(&light_color));
+
+        glUniformMatrix4x3fv(statmodel_bones_location, statmodel_bones.size(), GL_FALSE, reinterpret_cast<float *>(statmodel_bones.data()));
+
+        auto draw_statmodel_meshes = [&](bool transparent)
+        {
+            for (auto const & mesh : statmodel_meshes)
+            {
+                if (mesh.material.transparent != transparent)
+                    continue;
+
+                if (mesh.material.two_sided)
+                    glDisable(GL_CULL_FACE);
+                else
+                    glEnable(GL_CULL_FACE);
+
+                if (transparent)
+                    glEnable(GL_BLEND);
+                else
+                    glDisable(GL_BLEND);
+
+                if (mesh.material.texture_path)
+                {
+                    glBindTexture(GL_TEXTURE_2D, statmodel_textures[*mesh.material.texture_path]);
+                    glUniform1i(statmodel_use_texture_location, 1);
+                }
+                else if (mesh.material.color)
+                {
+                    glUniform1i(statmodel_use_texture_location, 0);
+                    glUniform4fv(statmodel_color_location, 1, reinterpret_cast<const float *>(&(*mesh.material.color)));
+                }
+                else
+                    continue;
+
+                glBindVertexArray(mesh.vao);
+                glDrawElements(GL_TRIANGLES, mesh.indices.count, mesh.indices.type, reinterpret_cast<void *>(mesh.indices.view.offset));
+            }
+        };
+
+        draw_statmodel_meshes(false);
+        glDepthMask(GL_FALSE);
+        draw_statmodel_meshes(true);
+        glDepthMask(GL_TRUE);
+
+        // ========================================================================================================
+
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        std::vector <glm::mat4x3> animodel_bones(animodel_input_model.bones.size());
 
         auto run_animation = animodel_input_model.animations.at("01_Run");
         auto walk_animation = animodel_input_model.animations.at("02_walk");
 
-        for (int i = 0; i < bones.size(); i++) {
+        for (int i = 0; i < animodel_bones.size(); i++) {
             glm::mat4 translation = glm::translate(
                 glm::mat4(1.f),
                 glm::lerp(
@@ -893,13 +969,13 @@ int main() try
             glm::mat4 transform = translation * rotation * scale;
 
             if (animodel_input_model.bones[i].parent != -1) {
-                transform = bones[animodel_input_model.bones[i].parent] * transform;
+                transform = animodel_bones[animodel_input_model.bones[i].parent] * transform;
             }
 
-            bones[i] = transform;
+            animodel_bones[i] = transform;
         }
-        for (int i = 0; i < bones.size(); i++) {
-            bones[i] = bones[i] * animodel_input_model.bones[i].inverse_bind_matrix;
+        for (int i = 0; i < animodel_bones.size(); i++) {
+            animodel_bones[i] = animodel_bones[i] * animodel_input_model.bones[i].inverse_bind_matrix;
         }
 
         float animodel_scale = 0.5;
@@ -916,9 +992,9 @@ int main() try
         glUniform3fv(animodel_light_direction_location, 1, reinterpret_cast<float *>(&light_direction));
         glUniform3fv(animodel_light_color_location, 1, reinterpret_cast<float *>(&light_color));
 
-        glUniformMatrix4x3fv(animodel_bones_location, bones.size(), GL_FALSE, reinterpret_cast<float *>(bones.data()));
+        glUniformMatrix4x3fv(animodel_bones_location, animodel_bones.size(), GL_FALSE, reinterpret_cast<float *>(animodel_bones.data()));
 
-        auto draw_meshes = [&](bool transparent)
+        auto draw_animodel_meshes = [&](bool transparent)
         {
             for (auto const & mesh : animodel_meshes)
             {
@@ -953,9 +1029,9 @@ int main() try
             }
         };
 
-        draw_meshes(false);
+        draw_animodel_meshes(false);
         glDepthMask(GL_FALSE);
-        draw_meshes(true);
+        draw_animodel_meshes(true);
         glDepthMask(GL_TRUE);
 
         // ========================================================================================================
