@@ -101,7 +101,7 @@ void main()
     if (abs(position.y) < 1e-6) {
         albedo = vec3(0.5 + 0.5 * sqrt(position.x * position.x + position.z * position.z));
     } else {
-        albedo = vec3(0.5);
+        albedo = vec3(0.24);
     }    
 
     out_color = vec4(lightness * light_color * albedo, 1.0);
@@ -251,6 +251,86 @@ void main()
     float diffuse = max(0.0, dot(normalize(normal), light_direction));
 
     out_color = vec4(albedo_color.rgb * light_color * (ambient + diffuse), albedo_color.a);
+}
+)";
+
+// ========================================================================================================
+
+const char mist_vertex_shader_source[] =
+R"(#version 330 core
+
+uniform mat4 view;
+uniform mat4 projection;
+
+uniform vec3 bbox_min;
+uniform vec3 bbox_max;
+
+layout (location = 0) in vec3 in_position;
+
+out vec3 position;
+
+void main()
+{
+    position = bbox_min + in_position * (bbox_max - bbox_min);
+    gl_Position = projection * view * vec4(position, 1.0);
+}
+)";
+
+const char mist_fragment_shader_source[] =
+R"(#version 330 core
+
+uniform vec3 camera_position;
+uniform vec3 light_direction;
+uniform vec3 bbox_min;
+uniform vec3 bbox_max;
+
+layout (location = 0) out vec4 out_color;
+
+in vec3 position;
+
+void sort(inout float x, inout float y)
+{
+    if (x > y)
+    {
+        float t = x;
+        x = y;
+        y = t;
+    }
+}
+
+float vmin(vec3 v)
+{
+    return min(v.x, min(v.y, v.z));
+}
+
+float vmax(vec3 v)
+{
+    return max(v.x, max(v.y, v.z));
+}
+
+vec2 intersect_bbox(vec3 origin, vec3 direction)
+{
+    vec3 tmin = (bbox_min - origin) / direction;
+    vec3 tmax = (bbox_max - origin) / direction;
+
+    sort(tmin.x, tmax.x);
+    sort(tmin.y, tmax.y);
+    sort(tmin.z, tmax.z);
+
+    return vec2(vmax(tmin), vmin(tmax));
+}
+
+void main()
+{
+    vec3 dir = normalize(position - camera_position);
+    vec2 bounds = intersect_bbox(camera_position, dir);
+    float tmin = max(0.0, bounds.x), tmax = bounds.y;
+
+    float absorption = 1.0;
+    float optical_depth = (tmax - tmin) * absorption;
+    float opacity = 1.0 - exp(-optical_depth);
+
+    out_color = vec4(vec3(0.7), opacity);
 }
 )";
 
@@ -416,6 +496,25 @@ std::pair<std::vector<vertex>, std::vector<std::uint32_t>> generate_sphere(float
         }
     }
 
+    for (int latitude = 0; latitude <= 0; ++latitude)
+    {
+        for (int longitude = 0; longitude <= 4 * quality; ++longitude)
+        {
+            float lat = (latitude * glm::pi<float>()) / (2.f * quality);
+            float lon = (longitude * glm::pi<float>()) / (2.f * quality);
+
+            auto & vertex = vertices.emplace_back();
+            vertex.normal = {std::cos(lat) * std::cos(lon), std::sin(lat), std::cos(lat) * std::sin(lon)};
+            vertex.position = vertex.normal * radius;
+            vertex.tangent = {-std::cos(lat) * std::sin(lon), 0.f, std::cos(lat) * std::cos(lon)};
+            vertex.texcoords.x = (longitude * 1.f) / (4.f * quality);
+            vertex.texcoords.y = (latitude * 1.f) / (2.f * quality) + 0.5f;
+            if (latitude == 0) {
+                vertex.normal = {0.0, 1.0, 0.0};
+            }
+        }
+    }
+
     std::vector<std::uint32_t> indices;
 
     for (int latitude = 0; latitude < 2 * quality; ++latitude)
@@ -451,6 +550,40 @@ GLuint load_texture(std::string const & path)
 
     return result;
 }
+
+static glm::vec3 cube_vertices[]
+{
+    {0.f, 0.f, 0.f},
+    {1.f, 0.f, 0.f},
+    {0.f, 1.f, 0.f},
+    {1.f, 1.f, 0.f},
+    {0.f, 0.f, 1.f},
+    {1.f, 0.f, 1.f},
+    {0.f, 1.f, 1.f},
+    {1.f, 1.f, 1.f},
+};
+
+static std::uint32_t cube_indices[]
+{
+    // -Z
+    0, 2, 1,
+    1, 2, 3,
+    // +Z
+    4, 5, 6,
+    6, 5, 7,
+    // -Y
+    0, 1, 4,
+    4, 1, 5,
+    // +Y
+    2, 6, 3,
+    3, 6, 7,
+    // -X
+    0, 4, 2,
+    2, 4, 6,
+    // +X
+    1, 3, 5,
+    5, 3, 7,
+};
 
 std::default_random_engine rng;
 
@@ -715,6 +848,37 @@ int main() try
 
     // ========================================================================================================
 
+    auto mist_vertex_shader = create_shader(GL_VERTEX_SHADER, mist_vertex_shader_source);
+    auto mist_fragment_shader = create_shader(GL_FRAGMENT_SHADER, mist_fragment_shader_source);
+    auto mist_program = create_program(mist_vertex_shader, mist_fragment_shader);
+
+    GLuint mist_view_location = glGetUniformLocation(mist_program, "view");
+    GLuint mist_projection_location = glGetUniformLocation(mist_program, "projection");
+    GLuint mist_bbox_min_location = glGetUniformLocation(mist_program, "bbox_min");
+    GLuint mist_bbox_max_location = glGetUniformLocation(mist_program, "bbox_max");
+    GLuint mist_camera_position_location = glGetUniformLocation(mist_program, "camera_position");
+    GLuint mist_light_direction_location = glGetUniformLocation(mist_program, "light_direction");
+
+    GLuint mist_vao, mist_vbo, mist_ebo;
+    glGenVertexArrays(1, &mist_vao);
+    glBindVertexArray(mist_vao);
+
+    glGenBuffers(1, &mist_vbo);
+    glBindBuffer(GL_ARRAY_BUFFER, mist_vbo);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(cube_vertices), cube_vertices, GL_STATIC_DRAW);
+
+    glGenBuffers(1, &mist_ebo);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, mist_ebo);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(cube_indices), cube_indices, GL_STATIC_DRAW);
+
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 0, nullptr);
+
+    const glm::vec3 cloud_bbox_min = glm::vec3(-2.f);
+    const glm::vec3 cloud_bbox_max = glm::vec3(2.f);
+
+    // ========================================================================================================
+
     auto particle_vertex_shader = create_shader(GL_VERTEX_SHADER, particle_vertex_shader_source);
     auto particle_geometry_shader = create_shader(GL_GEOMETRY_SHADER, particle_geometry_shader_source);
     auto particle_fragment_shader = create_shader(GL_FRAGMENT_SHADER, particle_fragment_shader_source);
@@ -838,7 +1002,7 @@ int main() try
         projection = glm::perspective(glm::pi<float>() / 2.f, (1.f * width) / height, near, far);
 
         glm::vec3 light_direction = glm::normalize(glm::vec3(2 * sin(-time), 1 + 2 * sin(3 * time), 2 * cos(-time)));
-        glm::vec3 light_color = glm::vec3(.9f, .6f, .9f);
+        glm::vec3 light_color = glm::vec3(.9f, .5f + (1 + sin(time)) / 4.f, .9f);
 
         glm::vec3 camera_position = (glm::inverse(view) * glm::vec4(0.f, 0.f, 0.f, 1.f)).xyz();
 
@@ -850,6 +1014,7 @@ int main() try
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
         glDisable(GL_BLEND);
 
         glUseProgram(sphere_program);
@@ -871,6 +1036,26 @@ int main() try
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
+        glCullFace(GL_FRONT);
+        glEnable(GL_BLEND);
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+        glUseProgram(mist_program);
+        glUniformMatrix4fv(mist_view_location, 1, GL_FALSE, reinterpret_cast<float *>(&view));
+        glUniformMatrix4fv(mist_projection_location, 1, GL_FALSE, reinterpret_cast<float *>(&projection));
+        glUniform3fv(mist_bbox_min_location, 1, reinterpret_cast<const float *>(&cloud_bbox_min));
+        glUniform3fv(mist_bbox_max_location, 1, reinterpret_cast<const float *>(&cloud_bbox_max));
+        glUniform3fv(mist_camera_position_location, 1, reinterpret_cast<float *>(&camera_position));
+        glUniform3fv(mist_light_direction_location, 1, reinterpret_cast<float *>(&light_direction));
+
+        glBindVertexArray(mist_vao);
+        //glDrawElements(GL_TRIANGLES, std::size(cube_indices), GL_UNSIGNED_INT, nullptr);
+
+        // ========================================================================================================
+
+        glEnable(GL_DEPTH_TEST);
+        glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -933,6 +1118,7 @@ int main() try
 
         glEnable(GL_DEPTH_TEST);
         glEnable(GL_CULL_FACE);
+        glCullFace(GL_BACK);
         glEnable(GL_BLEND);
         glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
@@ -1035,7 +1221,6 @@ int main() try
         glDepthMask(GL_TRUE);
 
         // ========================================================================================================
-
 
         glDisable(GL_DEPTH_TEST);
         glDisable(GL_CULL_FACE);
