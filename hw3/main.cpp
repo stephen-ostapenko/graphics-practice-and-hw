@@ -77,6 +77,7 @@ const char sphere_fragment_shader_source[] =
 R"(#version 330 core
 
 uniform vec3 light_direction;
+uniform vec3 light_color;
 uniform vec3 camera_position;
 
 uniform sampler2D albedo_texture;
@@ -92,20 +93,18 @@ const float PI = 3.141592653589793;
 
 void main()
 {
-    float ambient_light = 0.2;
-
+    float ambient_light = 0.4;
     float lightness = ambient_light + max(0.0, dot(normalize(normal), light_direction));
 
-    vec3 albedo = texture(albedo_texture, texcoord).rgb;
-
-    //out_color = vec4(lightness * albedo, 1.0);
-    //out_color = vec4(texcoord, 0.0, 1.0);
+    vec3 albedo;
 
     if (abs(position.y) < 1e-6) {
-        out_color = vec4(vec3(0.5 + 0.5 * sqrt(position.x * position.x + position.z * position.z)), 1.0);
+        albedo = vec3(0.5 + 0.5 * sqrt(position.x * position.x + position.z * position.z));
     } else {
-        out_color = vec4(vec3(0.5), 1.0);
-    }
+        albedo = vec3(0.5);
+    }    
+
+    out_color = vec4(lightness * light_color * albedo, 1.0);
 }
 )";
 
@@ -205,6 +204,7 @@ uniform vec4 color;
 uniform int use_texture;
 
 uniform vec3 light_direction;
+uniform vec3 light_color;
 
 layout (location = 0) out vec4 out_color;
 
@@ -225,7 +225,7 @@ void main()
     float ambient = 0.4;
     float diffuse = max(0.0, dot(normalize(normal), light_direction));
 
-    out_color = vec4(albedo_color.rgb * (ambient + diffuse), albedo_color.a);
+    out_color = vec4(albedo_color.rgb * light_color * (ambient + diffuse), albedo_color.a);
 }
 )";
 
@@ -499,6 +499,7 @@ int main() try
     GLuint sphere_view_location = glGetUniformLocation(sphere_program, "view");
     GLuint sphere_projection_location = glGetUniformLocation(sphere_program, "projection");
     GLuint sphere_light_direction_location = glGetUniformLocation(sphere_program, "light_direction");
+    GLuint sphere_light_color_location = glGetUniformLocation(sphere_program, "light_color");
     GLuint sphere_camera_position_location = glGetUniformLocation(sphere_program, "camera_position");
     GLuint sphere_albedo_texture_location = glGetUniformLocation(sphere_program, "albedo_texture");
 
@@ -533,6 +534,24 @@ int main() try
 
     // ========================================================================================================
 
+    struct mesh
+    {
+        GLuint vao;
+        gltf_model::accessor indices;
+        gltf_model::material material;
+    };
+
+    auto setup_attribute = [](int index, gltf_model::accessor const & accessor, bool integer = false)
+    {
+        glEnableVertexAttribArray(index);
+        if (integer)
+            glVertexAttribIPointer(index, accessor.size, accessor.type, 0, reinterpret_cast<void *>(accessor.view.offset));
+        else
+            glVertexAttribPointer(index, accessor.size, accessor.type, GL_FALSE, 0, reinterpret_cast<void *>(accessor.view.offset));
+    };
+
+    // ========================================================================================================
+
     /*auto statmodel_vertex_shader = create_shader(GL_VERTEX_SHADER, statmodel_vertex_shader_source);
     auto statmodel_fragment_shader = create_shader(GL_FRAGMENT_SHADER, statmodel_fragment_shader_source);
     auto statmodel_program = create_program(statmodel_vertex_shader, statmodel_fragment_shader);
@@ -545,13 +564,13 @@ int main() try
     GLuint statmodel_use_texture_location = glGetUniformLocation(statmodel_program, "use_texture");
     GLuint statmodel_light_direction_location = glGetUniformLocation(statmodel_program, "light_direction");
 
-    const std::string model_path = project_root + "/frank/scene.gltf";
+    const std::string statmodel_model_path = project_root + "/frank/scene.gltf";
 
-    auto const input_model = load_gltf(model_path);
+    auto const statmodel_input_model = load_gltf(statmodel_model_path);
     GLuint statmodel_vbo;
     glGenBuffers(1, &statmodel_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, statmodel_vbo);
-    glBufferData(GL_ARRAY_BUFFER, input_model.buffer.size(), input_model.buffer.data(), GL_STATIC_DRAW);
+    glBufferData(GL_ARRAY_BUFFER, statmodel_input_model.buffer.size(), statmodel_input_model.buffer.data(), GL_STATIC_DRAW);
 
     struct mesh
     {
@@ -569,10 +588,10 @@ int main() try
             glVertexAttribPointer(index, accessor.size, accessor.type, GL_FALSE, 0, reinterpret_cast<void *>(accessor.view.offset));
     };
 
-    std::vector<mesh> meshes;
-    for (auto const & mesh : input_model.meshes)
+    std::vector<mesh> statmodel_meshes;
+    for (auto const & mesh : statmodel_input_model.meshes)
     {
-        auto & result = meshes.emplace_back();
+        auto & result = statmodel_meshes.emplace_back();
         glGenVertexArrays(1, &result.vao);
         glBindVertexArray(result.vao);
 
@@ -582,19 +601,17 @@ int main() try
         setup_attribute(0, mesh.position);
         setup_attribute(1, mesh.normal);
         setup_attribute(2, mesh.texcoord);
-        setup_attribute(3, mesh.joints, true);
-        setup_attribute(4, mesh.weights);
 
         result.material = mesh.material;
     }
 
     std::map<std::string, GLuint> statmodel_textures;
-    for (auto const & mesh : meshes)
+    for (auto const & mesh : statmodel_meshes)
     {
         if (!mesh.material.texture_path) continue;
         if (statmodel_textures.contains(*mesh.material.texture_path)) continue;
 
-        auto path = std::filesystem::path(model_path).parent_path() / *mesh.material.texture_path;
+        auto path = std::filesystem::path(statmodel_model_path).parent_path() / *mesh.material.texture_path;
 
         int width, height, channels;
         auto data = stbi_load(path.c_str(), &width, &height, &channels, 4);
@@ -626,6 +643,7 @@ int main() try
     GLuint animodel_color_location = glGetUniformLocation(animodel_program, "color");
     GLuint animodel_use_texture_location = glGetUniformLocation(animodel_program, "use_texture");
     GLuint animodel_light_direction_location = glGetUniformLocation(animodel_program, "light_direction");
+    GLuint animodel_light_color_location = glGetUniformLocation(animodel_program, "light_color");
 
     GLuint animodel_bones_location = glGetUniformLocation(animodel_program, "bones");
 
@@ -636,24 +654,6 @@ int main() try
     glGenBuffers(1, &animodel_vbo);
     glBindBuffer(GL_ARRAY_BUFFER, animodel_vbo);
     glBufferData(GL_ARRAY_BUFFER, animodel_input_model.buffer.size(), animodel_input_model.buffer.data(), GL_STATIC_DRAW);
-
-    /*
-    */
-    struct mesh
-    {
-        GLuint vao;
-        gltf_model::accessor indices;
-        gltf_model::material material;
-    };
-
-    auto setup_attribute = [](int index, gltf_model::accessor const & accessor, bool integer = false)
-    {
-        glEnableVertexAttribArray(index);
-        if (integer)
-            glVertexAttribIPointer(index, accessor.size, accessor.type, 0, reinterpret_cast<void *>(accessor.view.offset));
-        else
-            glVertexAttribPointer(index, accessor.size, accessor.type, GL_FALSE, 0, reinterpret_cast<void *>(accessor.view.offset));
-    };
 
     std::vector<mesh> animodel_meshes;
     for (auto const & mesh : animodel_input_model.meshes)
@@ -823,7 +823,8 @@ int main() try
         glm::mat4 projection = glm::mat4(1.f);
         projection = glm::perspective(glm::pi<float>() / 2.f, (1.f * width) / height, near, far);
 
-        glm::vec3 light_direction = glm::normalize(glm::vec3(1.f, 2.f, 3.f));
+        glm::vec3 light_direction = glm::normalize(glm::vec3(2 * sin(-time), 1 + 2 * sin(3 * time), 2 * cos(-time)));
+        glm::vec3 light_color = glm::vec3(.9f, .6f, .9f);
 
         glm::vec3 camera_position = (glm::inverse(view) * glm::vec4(0.f, 0.f, 0.f, 1.f)).xyz();
 
@@ -842,6 +843,7 @@ int main() try
         glUniformMatrix4fv(sphere_view_location, 1, GL_FALSE, reinterpret_cast<float *>(&view));
         glUniformMatrix4fv(sphere_projection_location, 1, GL_FALSE, reinterpret_cast<float *>(&projection));
         glUniform3fv(sphere_light_direction_location, 1, reinterpret_cast<float *>(&light_direction));
+        glUniform3fv(sphere_light_color_location, 1, reinterpret_cast<float *>(&light_color));
         glUniform3fv(sphere_camera_position_location, 1, reinterpret_cast<float *>(&camera_position));
         glUniform1i(sphere_albedo_texture_location, 0);
 
@@ -912,6 +914,7 @@ int main() try
         glUniformMatrix4fv(animodel_view_location, 1, GL_FALSE, reinterpret_cast<float *>(&view));
         glUniformMatrix4fv(animodel_projection_location, 1, GL_FALSE, reinterpret_cast<float *>(&projection));
         glUniform3fv(animodel_light_direction_location, 1, reinterpret_cast<float *>(&light_direction));
+        glUniform3fv(animodel_light_color_location, 1, reinterpret_cast<float *>(&light_color));
 
         glUniformMatrix4x3fv(animodel_bones_location, bones.size(), GL_FALSE, reinterpret_cast<float *>(bones.data()));
 
