@@ -4,8 +4,12 @@
 
 #include <glm/gtx/rotate_vector.hpp>
 
+#include <vector>
 #include <string>
 #include <cmath>
+
+#include "common_util.hpp"
+#include "gltf_loader.hpp"
 
 #include "entity.hpp"
 #include "papich.hpp"
@@ -54,8 +58,6 @@ void main() {
 )";
 
 struct papich_hat_t : entity::entity {
-    using vertex = obj_data::vertex;
-
     // GLuint vertex_shader, fragment_shader, program;
     // GLuint model_location, view_location, projection_location;
     // GLuint vao, vbo, ebo;
@@ -73,6 +75,8 @@ struct papich_hat_t : entity::entity {
     std::vector <gltf_mesh> meshes;
 
     papich_hat_t(int object_index, papich::papich_t *papich) {
+        (void)object_index;
+
         papich_ptr = papich;
 
         vertex_shader = create_shader(GL_VERTEX_SHADER, vertex_shader_source);
@@ -104,6 +108,7 @@ struct papich_hat_t : entity::entity {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo);
             result.indices = mesh.indices;
 
+            glBindBuffer(GL_ARRAY_BUFFER, vbo);
             setup_attribute(0, mesh.position);
             setup_attribute(1, mesh.normal);
 

@@ -6,6 +6,9 @@
 
 #include <string>
 
+#include "common_util.hpp"
+#include "obj_parser.hpp"
+
 #include "entity.hpp"
 
 namespace papich {
@@ -76,9 +79,11 @@ struct papich_t : entity::entity {
     const float fast_move_speed = 2.f;
 
     float angle = -glm::pi<float>() / 2.f;
-    glm::vec3 position{0.f, 0.f, 0.f};
+    glm::vec3 position{0.f, 1.01f, 0.f};
 
     papich_t(int object_index) {
+        (void)object_index;
+
         vertex_shader = create_shader(GL_VERTEX_SHADER, vertex_shader_source);
         fragment_shader = create_shader(GL_FRAGMENT_SHADER, fragment_shader_source);
         program = create_program(vertex_shader, fragment_shader);
@@ -173,7 +178,6 @@ struct papich_t : entity::entity {
         glUniform3fv(light_direction_location, 1, reinterpret_cast<const float*>(&light_direction));
         glUniform3fv(light_color_location, 1, reinterpret_cast<const float*>(&light_color));
         glUniform3fv(ambient_light_color_location, 1, reinterpret_cast<const float*>(&ambient_light_color));
-
         glUniform1i(texture_location, 0);
 
         glActiveTexture(GL_TEXTURE0);

@@ -79,6 +79,9 @@ struct gltf_model
         std::optional<accessor> texcoord;
         std::optional<accessor> joints;
         std::optional<accessor> weights;
+
+        glm::vec3 min;
+        glm::vec3 max;
     };
 
     std::vector<char> buffer;

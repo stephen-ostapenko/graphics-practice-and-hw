@@ -4,9 +4,14 @@
 
 #include <glm/gtx/rotate_vector.hpp>
 
+#include <vector>
 #include <string>
 #include <random>
 #include <ctime>
+
+#include "common_util.hpp"
+#include "stb_image.h"
+#include "gltf_loader.hpp"
 
 #include "entity.hpp"
 
@@ -78,8 +83,6 @@ void main() {
 )";
 
 struct mouse_t : entity::entity {
-    using vertex = obj_data::vertex;
-
     // GLuint vertex_shader, fragment_shader, program;
     // GLuint model_location, view_location, projection_location;
     // GLuint vao, vbo, ebo;
@@ -98,6 +101,7 @@ struct mouse_t : entity::entity {
     const float scale = .5f;
     const float move_speed = 7.f;
     const float eps = 1e-6f;
+    const float board_size = 24.f;
 
     float angle = 0.f;
     glm::vec3 position{0.f, 0.f, 0.f};
@@ -106,9 +110,12 @@ struct mouse_t : entity::entity {
     float distance_left = 0.f;
     std::default_random_engine random_engine;
     std::uniform_real_distribution <float> angle_distr{0.f, glm::pi<float>() * 2.f};
-    std::uniform_real_distribution <float> distance_distr{1.f, 10.f};
+    std::uniform_real_distribution <float> distance_distr{1.f, board_size / 2};
+    std::uniform_real_distribution <float> random_pt_distr{0.f, board_size / 2};
 
     mouse_t(int object_index) {
+        (void)object_index;
+
         vertex_shader = create_shader(GL_VERTEX_SHADER, vertex_shader_source);
         fragment_shader = create_shader(GL_FRAGMENT_SHADER, fragment_shader_source);
         program = create_program(vertex_shader, fragment_shader);
@@ -133,7 +140,7 @@ struct mouse_t : entity::entity {
         glBindBuffer(GL_ARRAY_BUFFER, vbo);
         glBufferData(GL_ARRAY_BUFFER, animodel.buffer.size(), animodel.buffer.data(), GL_STATIC_DRAW);
 
-        for (auto const &mesh : animodel.meshes) {
+        for (const auto &mesh : animodel.meshes) {
             auto &result = meshes.emplace_back();
             glGenVertexArrays(1, &result.vao);
             glBindVertexArray(result.vao);
@@ -141,17 +148,15 @@ struct mouse_t : entity::entity {
             glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, vbo);
             result.indices = mesh.indices;
 
+            glBindBuffer(GL_ARRAY_BUFFER, vbo);
             setup_attribute(0, mesh.position);
             setup_attribute(1, mesh.normal);
-
             if (mesh.texcoord) {
                 setup_attribute(2, mesh.texcoord.value());
             }
-
             if (mesh.joints) {
                 setup_attribute(3, mesh.joints.value(), true);
             }
-
             if (mesh.weights) {
                 setup_attribute(4, mesh.weights.value());
             }
@@ -168,33 +173,41 @@ struct mouse_t : entity::entity {
 
             auto path = std::filesystem::path(model_path).parent_path() / *mesh.material.texture_path;
 
-            int width, height, channels;
-            auto data = stbi_load(path.c_str(), &width, &height, &channels, 4);
-            assert(data);
-
-            GLuint texture;
-            glGenTextures(1, &texture);
-            glBindTexture(GL_TEXTURE_2D, texture);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-            glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, data);
-            glGenerateMipmap(GL_TEXTURE_2D);
-
-            stbi_image_free(data);
-
-            textures[*mesh.material.texture_path] = texture;
+            textures[*mesh.material.texture_path] = load_texture(path.string());
         }
 
         random_engine.seed(std::time(0));
     }
 
+    void update_moving_direction(bool random_angle = true) {
+        if (!random_angle) {
+            float x = random_pt_distr(random_engine);
+            float z = random_pt_distr(random_engine);
+
+            move_direction = glm::normalize(glm::vec3(x, position.y, z) - position);
+            distance_left = distance_distr(random_engine);
+            angle = acos(glm::dot(move_direction, (glm::vec3){0.f, 0.f, 1.f}));
+            if (move_direction.x < 0) {
+                angle = -angle;
+            }
+
+            return;
+        }
+
+        angle = angle_distr(random_engine);
+        distance_left = distance_distr(random_engine);
+        move_direction = glm::rotate((glm::vec3){0.f, 0.f, 1.f}, angle, (glm::vec3){0.f, 1.f, 0.f});
+    }
+
     void update_state(float time, float dt, std::map <SDL_Keycode, bool> &button_down) {
         (void)time; (void)button_down;
 
+        if (std::max(abs(position.x), abs(position.z)) > board_size) {
+            update_moving_direction(false);
+        }
+
         if (distance_left - eps < 0.f) {
-            angle = angle_distr(random_engine);
-            distance_left = distance_distr(random_engine);
-            move_direction = glm::rotate((glm::vec3){0.f, 0.f, 1.f}, angle, (glm::vec3){0.f, 1.f, 0.f});
+            update_moving_direction();
         }
 
         position += move_direction * move_speed * dt;

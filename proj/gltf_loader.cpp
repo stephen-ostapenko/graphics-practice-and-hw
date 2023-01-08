@@ -84,40 +84,62 @@ gltf_model load_gltf(std::filesystem::path const & path)
         };
     };
 
+    auto parse_vector = [&](auto const & array)
+    {
+        return glm::vec3{
+            array[0].GetFloat(),
+            array[1].GetFloat(),
+            array[2].GetFloat(),
+        };
+    };
+
+    auto parse_bounds = [&](int index)
+    {
+        auto accessor = document["accessors"].GetArray()[index].GetObject();
+        return std::make_pair(
+            parse_vector(accessor["min"]),
+            parse_vector(accessor["max"])
+        );
+    };
+
     for (auto const & mesh : document["meshes"].GetArray())
     {
-        auto & result_mesh = result.meshes.emplace_back();
-        result_mesh.name = mesh["name"].GetString();
-
         auto primitives = mesh["primitives"].GetArray();
-        assert(primitives.Size() == 1);
 
-        auto const & attributes = primitives[0]["attributes"];
+        for (auto const & primitive : primitives)
+        {
+            auto & result_mesh = result.meshes.emplace_back();
+            result_mesh.name = mesh["name"].GetString();
 
-        result_mesh.indices = parse_accessor(primitives[0]["indices"].GetInt());
-        result_mesh.position = parse_accessor(attributes["POSITION"].GetInt());
-        result_mesh.normal = parse_accessor(attributes["NORMAL"].GetInt());
-        
-        if (attributes.HasMember("TEXCOORD_0")) {
-            result_mesh.texcoord = parse_accessor(attributes["TEXCOORD_0"].GetInt());
+            auto const & attributes = primitive["attributes"];
+
+            result_mesh.indices = parse_accessor(primitive["indices"].GetInt());
+            result_mesh.position = parse_accessor(attributes["POSITION"].GetInt());
+            result_mesh.normal = parse_accessor(attributes["NORMAL"].GetInt());
+            
+            if (attributes.HasMember("TEXCOORD_0")) {
+                result_mesh.texcoord = parse_accessor(attributes["TEXCOORD_0"].GetInt());
+            }
+            if (attributes.HasMember("JOINTS_0")) {
+                result_mesh.joints = parse_accessor(attributes["JOINTS_0"].GetInt());
+            }
+            if (attributes.HasMember("WEIGHTS_0")) {
+                result_mesh.weights = parse_accessor(attributes["WEIGHTS_0"].GetInt());
+            }
+
+            std::tie(result_mesh.min, result_mesh.max) = parse_bounds(attributes["POSITION"].GetInt());
+
+            auto const & material = document["materials"].GetArray()[primitive["material"].GetInt()];
+
+            result_mesh.material.two_sided = material.HasMember("doubleSided") && material["doubleSided"].GetBool();
+            result_mesh.material.transparent = material.HasMember("alphaMode") && (material["alphaMode"].GetString() == std::string("BLEND"));
+
+            auto const & pbr = material["pbrMetallicRoughness"];
+            if (pbr.HasMember("baseColorTexture"))
+                result_mesh.material.texture_path = parse_texture(pbr["baseColorTexture"]["index"].GetInt());
+            else if (pbr.HasMember("baseColorFactor"))
+                result_mesh.material.color = parse_color(pbr["baseColorFactor"].GetArray());
         }
-        if (attributes.HasMember("JOINTS_0")) {
-            result_mesh.joints = parse_accessor(attributes["JOINTS_0"].GetInt());
-        }
-        if (attributes.HasMember("WEIGHTS_0")) {
-            result_mesh.weights = parse_accessor(attributes["WEIGHTS_0"].GetInt());
-        }
-
-        auto const & material = document["materials"].GetArray()[primitives[0]["material"].GetInt()];
-
-        result_mesh.material.two_sided = material.HasMember("doubleSided") && material["doubleSided"].GetBool();
-        result_mesh.material.transparent = material.HasMember("alphaMode") && (material["alphaMode"].GetString() == std::string("BLEND"));
-
-        auto const & pbr = material["pbrMetallicRoughness"];
-        if (pbr.HasMember("baseColorTexture"))
-            result_mesh.material.texture_path = parse_texture(pbr["baseColorTexture"]["index"].GetInt());
-        else if (pbr.HasMember("baseColorFactor"))
-            result_mesh.material.color = parse_color(pbr["baseColorFactor"].GetArray());
     }
 
     if (!document.HasMember("skins")) {

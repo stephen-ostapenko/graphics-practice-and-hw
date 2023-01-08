@@ -23,9 +23,11 @@
 #include "stb_image.h"
 #include "gltf_loader.hpp"
 
+#include "board.hpp"
 #include "papich.hpp"
 #include "papich_hat.hpp"
 #include "mouse.hpp"
+#include "roses.hpp"
 
 std::string to_string(std::string_view str) {
     return std::string(str.begin(), str.end());
@@ -78,9 +80,11 @@ int main() try {
 
     glClearColor(0.8f, 0.8f, 1.f, 0.f);
 
+    board::board_t board(0);
     papich::papich_t papich(1);
     papich_hat::papich_hat_t papich_hat(2, &papich);
     mouse::mouse_t mouse(3);
+    roses::roses_t roses(4);
 
     auto last_frame_start = std::chrono::high_resolution_clock::now();
 
@@ -91,11 +95,6 @@ int main() try {
     float view_elevation = glm::radians(30.f);
     float view_azimuth = 0.f;
     float camera_distance = 2.f;
-
-    /*
-    float camera_x = 0, camera_y = 0, camera_z = 0;
-    float camera_xz_angle = 0, camera_yz_angle = 0;
-    */
 
     bool paused = false;
 
@@ -134,9 +133,9 @@ int main() try {
         }
 
         if (button_down[SDLK_UP])
-            camera_distance -= 4.f * dt;
+            camera_distance -= 8.f * dt;
         if (button_down[SDLK_DOWN])
-            camera_distance += 4.f * dt;
+            camera_distance += 8.f * dt;
 
         if (button_down[SDLK_LEFT])
             view_azimuth += 2.f * dt;
@@ -150,27 +149,35 @@ int main() try {
             view_elevation -= 1.f * dt;
         }
 
-        papich.update_state(time, dt, button_down);
-        papich_hat.update_state(time, dt, button_down);
-        mouse.update_state(time, dt, button_down);
+        if (!paused) {
+            board.update_state(time, dt, button_down);
+            papich.update_state(time, dt, button_down);
+            papich_hat.update_state(time, dt, button_down);
+            mouse.update_state(time, dt, button_down);
+            roses.update_state(time, dt, button_down);
+        }
 
         float near = 0.1f;
         float far = 100.f;
         float top = near;
         float right = (top * width) / height;
 
-        glm::mat4 model = glm::mat4(1.f);
-
         glm::mat4 view(1.f);
-        view = glm::translate(view, {0.f, 0.f, -camera_distance});
-        view = glm::rotate(view, view_elevation, {1.f, 0.f, 0.f});
-        view = glm::rotate(view, view_azimuth, {0.f, 1.f, 0.f});
+        if (button_down[SDLK_m]) {
+            view = glm::translate(view, {mouse.position.x, 2.f, mouse.position.z});
+            view = glm::rotate(view, view_elevation, {1.f, 0.f, 0.f});
+            view = glm::rotate(view, view_azimuth, {0.f, 1.f, 0.f});
+        } else {
+            view = glm::translate(view, {0.f, 0.f, -camera_distance});
+            view = glm::rotate(view, view_elevation, {1.f, 0.f, 0.f});
+            view = glm::rotate(view, view_azimuth, {0.f, 1.f, 0.f});
+        }
 
         glm::mat4 projection = glm::mat4(1.f);
         projection = glm::perspective(glm::pi<float>() / 2.f, (1.f * width) / height, near, far);
 
-        glm::vec3 light_direction = glm::normalize(glm::vec3(2 * sin(-time), 1 + 2 * sin(3 * time), 2 * cos(-time)));
-        glm::vec3 light_color(.9f, .5f + (1 + sin(time)) / 4.f, .9f);
+        glm::vec3 light_direction = glm::normalize(glm::vec3(2.f * sin(-time), 3.f, 2.f * cos(-time * 2.f)));
+        glm::vec3 light_color(.7f, .3f + (1.f + sin(time)) / 4.f, .7f);
         glm::vec3 ambient_light_color(.3f);
 
         glm::vec3 camera_position = (glm::inverse(view) * glm::vec4(0.f, 0.f, 0.f, 1.f)).xyz();
@@ -179,9 +186,11 @@ int main() try {
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        board.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         papich.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         papich_hat.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         mouse.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
+        roses.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
 
         SDL_GL_SwapWindow(window);
     }

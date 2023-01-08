@@ -29,6 +29,8 @@ add_executable(
 	obj_parser.hpp obj_parser.cpp
 	stb_image.h stb_image.c
 	gltf_loader.hpp gltf_loader.cpp
+	aabb.hpp aabb.cpp
+	frustum.hpp frustum.cpp
 )
 
 target_include_directories(${TARGET_NAME} PUBLIC
