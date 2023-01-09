@@ -6,16 +6,6 @@
 #include <fstream>
 #include <stdexcept>
 
-#include <iostream>
-
-static void db() { std::cerr << std::endl; }
-
-template <typename Head, typename... Tail>
-static void db(Head H, Tail... T) {
-  std::cerr << H << ' ';
-  db(T...);
-}
-
 static unsigned int attribute_type_to_size(std::string const & type)
 {
     if (type == "SCALAR") return 1;

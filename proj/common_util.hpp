@@ -9,18 +9,6 @@
 
 // ========================================================================================================
 
-#include <iostream>
-
-void db() { std::cerr << std::endl; }
-
-template <typename Head, typename... Tail>
-void db(Head H, Tail... T) {
-  std::cerr << H << ' ';
-  db(T...);
-}
-
-// ========================================================================================================
-
 GLuint create_shader(GLenum type, const char * source) {
     GLuint result = glCreateShader(type);
     glShaderSource(result, 1, &source, nullptr);

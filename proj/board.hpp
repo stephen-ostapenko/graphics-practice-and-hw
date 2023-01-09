@@ -121,7 +121,7 @@ struct board_t : entity::entity {
         std::vector<std::uint32_t> pixels(size * size);
         for (int i = 0; i < size; i++) {
             for (int j = 0; j < size; j++) {
-                std::uint32_t colors[] = {0x000000u, 0xFFFFFFFFu};
+                std::uint32_t colors[] = {0x00000000u, 0xFFFFFFFFu};
                 pixels[i * size + j] = colors[(i + j) % 2];
             }
         }

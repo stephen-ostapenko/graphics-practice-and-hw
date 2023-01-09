@@ -26,6 +26,7 @@
 #include "environment.hpp"
 #include "board.hpp"
 #include "box.hpp"
+#include "bitmap.hpp"
 #include "papich.hpp"
 #include "papich_hat.hpp"
 #include "mouse.hpp"
@@ -88,11 +89,12 @@ int main() try {
     environment::environment_t environment(0);
     board::board_t board(1);
     box::box_t box(2);
-    papich::papich_t papich(3);
-    papich_hat::papich_hat_t papich_hat(4, &papich);
-    mouse::mouse_t mouse(5);
-    roses::roses_t roses(6);
-    cloud::cloud_t cloud(7);
+    bitmap::bitmap_t bitmap(3);
+    papich::papich_t papich(4);
+    papich_hat::papich_hat_t papich_hat(5, &papich);
+    mouse::mouse_t mouse(6);
+    roses::roses_t roses(7);
+    cloud::cloud_t cloud(8);
 
     blur_device::blur_device_t blur(width, height);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
@@ -167,6 +169,7 @@ int main() try {
             environment.update_state(time, dt, button_down);
             board.update_state(time, dt, button_down);
             box.update_state(time, dt, button_down);
+            bitmap.update_state(time, dt, button_down);
             papich.update_state(time, dt, button_down);
             papich_hat.update_state(time, dt, button_down);
             mouse.update_state(time, dt, button_down);
@@ -200,8 +203,6 @@ int main() try {
 
         glm::vec3 camera_position = (glm::inverse(view) * glm::vec4(0.f, 0.f, 0.f, 1.f)).xyz();
 
-        // ========================================================================================================
-
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
         if (button_down[SDLK_b]) {
@@ -211,6 +212,7 @@ int main() try {
         environment.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         board.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         box.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
+        bitmap.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         papich.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         papich_hat.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         mouse.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
