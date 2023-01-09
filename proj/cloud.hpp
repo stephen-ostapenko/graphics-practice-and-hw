@@ -90,7 +90,7 @@ void main()
     vec3 dir = normalize(position - camera_position);
     vec2 bounds = intersect_bbox(camera_position, dir);
     float tmin = max(0.0, bounds.x), tmax = bounds.y;
-    float dt = (tmax - tmin) / 64;
+    float dt = (tmax - tmin) / 16;
 
     float absorption = 0.8;
     float scattering = 4.0;
@@ -100,7 +100,7 @@ void main()
     vec3 color = vec3(0.0);
     float optical_depth = 0.0;
 
-    for (int i = 0; i < 64; i++) {
+    for (int i = 0; i < 16; i++) {
         float t = tmin + (i + 0.5) * dt;
         vec3 p = camera_position + t * dir;
         float density = texture(tex, to_tex(p)).x;
@@ -108,10 +108,10 @@ void main()
 
         vec2 l_bounds = intersect_bbox(p, light_direction);
         float l_tmin = max(0.0, l_bounds.x), l_tmax = l_bounds.y;
-        float l_dt = (l_tmax - l_tmin) / 16;
+        float l_dt = (l_tmax - l_tmin) / 8;
         
         float light_optical_depth = 0.0;
-        for (int j = 0; j < 16; j++) {
+        for (int j = 0; j < 8; j++) {
             float l_t = l_tmin + (j + 0.5) * l_dt;
             vec3 l_p = p + l_t * light_direction;
             float l_density = texture(tex, to_tex(l_p)).x;
