@@ -24,6 +24,7 @@ R"(#version 330 core
 uniform mat4 model;
 uniform mat4 view;
 uniform mat4 projection;
+uniform bool use_instanced_translation;
 
 layout (location = 0) in vec3 in_position;
 layout (location = 1) in vec3 in_normal;
@@ -34,7 +35,13 @@ out vec3 normal;
 out vec2 texcoord;
 
 void main() {
-    vec3 position = (model * vec4(in_position + in_translation, 1.0)).xyz;
+    vec3 position;
+    if (use_instanced_translation) {
+        position = (model * vec4(in_position + in_translation, 1.0)).xyz;
+    } else {
+        position = (model * vec4(in_position, 1.0)).xyz;
+    }
+
     gl_Position = projection * view * vec4(position, 1.0);
     normal = mat3(model) * in_normal;
     texcoord = in_texcoord;
@@ -79,6 +86,7 @@ struct roses_t : entity::entity {
     // std::uint32_t indices_count;
 
     GLuint albedo_location, color_location, use_texture_location;
+    GLuint use_instanced_translation_location;
 
     const float scale = .012f;
     const float board_size = 24.f;
@@ -101,6 +109,7 @@ struct roses_t : entity::entity {
         model_location = glGetUniformLocation(program, "model");
         view_location = glGetUniformLocation(program, "view");
         projection_location = glGetUniformLocation(program, "projection");
+        use_instanced_translation_location = glGetUniformLocation(program, "use_instanced_translation");
         albedo_location = glGetUniformLocation(program, "albedo");
         color_location = glGetUniformLocation(program, "color");
         use_texture_location = glGetUniformLocation(program, "use_texture");
@@ -208,6 +217,7 @@ struct roses_t : entity::entity {
         glUniformMatrix4fv(model_location, 1, GL_FALSE, reinterpret_cast<const float*>(&model));
         glUniformMatrix4fv(view_location, 1, GL_FALSE, reinterpret_cast<const float*>(&view));
         glUniformMatrix4fv(projection_location, 1, GL_FALSE, reinterpret_cast<const float*>(&projection));
+        glUniform1i(use_instanced_translation_location, true);
         glUniform3fv(light_direction_location, 1, reinterpret_cast<const float*>(&light_direction));
         glUniform3fv(light_color_location, 1, reinterpret_cast<const float*>(&light_color));
         glUniform3fv(ambient_light_color_location, 1, reinterpret_cast<const float*>(&ambient_light_color));
@@ -279,6 +289,37 @@ struct roses_t : entity::entity {
 
         for (auto &tr : translations) {
             tr.clear();
+        }
+
+        glUniform1i(use_instanced_translation_location, false);
+
+        model = glm::translate(model, glm::vec3(board_size + 1.f, 10.f, -2.f) / scale);
+        for (std::size_t i = 0; i < flowers.size(); i++) {
+            const auto &flower = flowers[i];
+
+            model = glm::translate(model, glm::vec3(0.f, 0.f, 1.f) / scale);
+            glUniformMatrix4fv(model_location, 1, GL_FALSE, reinterpret_cast<const float*>(&model));
+
+            for (const auto &part : flower) {
+                if (part.material.two_sided)
+                    glDisable(GL_CULL_FACE);
+                else
+                    glEnable(GL_CULL_FACE);
+
+                if (part.material.texture_path) {
+                    glBindTexture(GL_TEXTURE_2D, textures[*part.material.texture_path]);
+                    glUniform1i(use_texture_location, 1);
+                    glUniform1i(albedo_location, 0);
+                } else if (part.material.color) {
+                    glUniform1i(use_texture_location, 0);
+                    glUniform4fv(color_location, 1, reinterpret_cast<const float*>(&(*part.material.color)));
+                } else {
+                    continue;
+                }
+
+                glBindVertexArray(part.vao);
+                glDrawElements(GL_TRIANGLES, part.indices.count, part.indices.type, reinterpret_cast<void*>(part.indices.view.offset));
+            }
         }
     }
 };

@@ -23,11 +23,15 @@
 #include "stb_image.h"
 #include "gltf_loader.hpp"
 
+#include "environment.hpp"
 #include "board.hpp"
+#include "box.hpp"
 #include "papich.hpp"
 #include "papich_hat.hpp"
 #include "mouse.hpp"
 #include "roses.hpp"
+#include "cloud.hpp"
+#include "blur_device.hpp"
 
 std::string to_string(std::string_view str) {
     return std::string(str.begin(), str.end());
@@ -67,6 +71,7 @@ int main() try {
 
     int width, height;
     SDL_GetWindowSize(window, &width, &height);
+    glViewport(0, 0, width, height);
 
     SDL_GLContext gl_context = SDL_GL_CreateContext(window);
     if (!gl_context)
@@ -80,11 +85,17 @@ int main() try {
 
     glClearColor(0.8f, 0.8f, 1.f, 0.f);
 
-    board::board_t board(0);
-    papich::papich_t papich(1);
-    papich_hat::papich_hat_t papich_hat(2, &papich);
-    mouse::mouse_t mouse(3);
-    roses::roses_t roses(4);
+    environment::environment_t environment(0);
+    board::board_t board(1);
+    box::box_t box(2);
+    papich::papich_t papich(3);
+    papich_hat::papich_hat_t papich_hat(4, &papich);
+    mouse::mouse_t mouse(5);
+    roses::roses_t roses(6);
+    cloud::cloud_t cloud(7);
+
+    blur_device::blur_device_t blur(width, height);
+    glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
 
     auto last_frame_start = std::chrono::high_resolution_clock::now();
 
@@ -109,6 +120,9 @@ int main() try {
                 width = event.window.data1;
                 height = event.window.data2;
                 glViewport(0, 0, width, height);
+
+                blur.update_size(width, height);
+
                 break;
             }
             break;
@@ -150,11 +164,14 @@ int main() try {
         }
 
         if (!paused) {
+            environment.update_state(time, dt, button_down);
             board.update_state(time, dt, button_down);
+            box.update_state(time, dt, button_down);
             papich.update_state(time, dt, button_down);
             papich_hat.update_state(time, dt, button_down);
             mouse.update_state(time, dt, button_down);
             roses.update_state(time, dt, button_down);
+            cloud.update_state(time, dt, button_down);
         }
 
         float near = 0.1f;
@@ -164,9 +181,10 @@ int main() try {
 
         glm::mat4 view(1.f);
         if (button_down[SDLK_m]) {
-            view = glm::translate(view, {mouse.position.x, 2.f, mouse.position.z});
+            view = glm::translate(view, {0.f, 0.f, -camera_distance / 3.f});
             view = glm::rotate(view, view_elevation, {1.f, 0.f, 0.f});
             view = glm::rotate(view, view_azimuth, {0.f, 1.f, 0.f});
+            view = glm::translate(view, -glm::vec3(mouse.position.x, 0.f, mouse.position.z));
         } else {
             view = glm::translate(view, {0.f, 0.f, -camera_distance});
             view = glm::rotate(view, view_elevation, {1.f, 0.f, 0.f});
@@ -186,11 +204,22 @@ int main() try {
 
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
+        if (button_down[SDLK_b]) {
+            blur.init();
+        }
+
+        environment.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         board.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
+        box.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         papich.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         papich_hat.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         mouse.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         roses.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
+        cloud.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
+
+        if (button_down[SDLK_b]) {
+            blur.show_output(width, height, time);
+        }
 
         SDL_GL_SwapWindow(window);
     }

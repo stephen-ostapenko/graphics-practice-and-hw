@@ -75,8 +75,8 @@ struct papich_t : entity::entity {
     const float scale = 1.f;
     const float std_turn_speed = 1.f;
     const float fast_turn_speed = 2.f;
-    const float std_move_speed = 1.f;
-    const float fast_move_speed = 2.f;
+    const float std_move_speed = 2.f;
+    const float fast_move_speed = 5.f;
 
     float angle = -glm::pi<float>() / 2.f;
     glm::vec3 position{0.f, 1.01f, 0.f};
@@ -121,7 +121,6 @@ struct papich_t : entity::entity {
         glBufferData(GL_ELEMENT_ARRAY_BUFFER, indices_count * sizeof(std::uint32_t), model.indices.data(), GL_STATIC_DRAW);
 
         std::string texture_path = project_root + "/models/papich/papich.jpg";
-        glActiveTexture(GL_TEXTURE0);
         texture = load_texture(texture_path);
     }
 

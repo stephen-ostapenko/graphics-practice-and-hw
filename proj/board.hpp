@@ -74,8 +74,6 @@ in float board_size;
 
 layout (location = 0) out vec4 out_color;
 
-const float C = 0.5;
-
 void main() {
     float diffuse = max(0.0, dot(normalize(normal), light_direction));
     
