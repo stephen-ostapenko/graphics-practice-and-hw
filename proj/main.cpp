@@ -93,7 +93,7 @@ int main() try {
     papich::papich_t papich(4);
     papich_hat::papich_hat_t papich_hat(5, &papich);
     mouse::mouse_t mouse(6);
-    roses::roses_t roses(7);
+    roses::roses_t roses(7, &papich, &mouse);
     cloud::cloud_t cloud(8);
 
     blur_device::blur_device_t blur(width, height);

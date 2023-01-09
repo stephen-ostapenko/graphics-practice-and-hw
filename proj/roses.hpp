@@ -90,17 +90,25 @@ struct roses_t : entity::entity {
 
     const float scale = .012f;
     const float board_size = 24.f;
-    const int roses_density = 50;
+    static const int roses_density = 32;
+    static const int roses_cnt = (roses_density - 1) * (roses_density - 1);
 
     std::vector <std::array <gltf_mesh, 3>> flowers;
     std::map <std::string, GLuint> textures;
     std::vector <std::pair <glm::vec3, glm::vec3>> bounds;
 
+    bool mask[roses_density][roses_density] = { false };
+    papich::papich_t *papich_ptr;
+    mouse::mouse_t *mouse_ptr;
+
     GLuint translations_vbo;
     std::vector <std::vector <glm::vec3>> translations;
 
-    roses_t(int object_index) {
+    roses_t(int object_index, papich::papich_t *papich, mouse::mouse_t *mouse) {
         (void)object_index;
+
+        papich_ptr = papich;
+        mouse_ptr = mouse;
 
         vertex_shader = create_shader(GL_VERTEX_SHADER, vertex_shader_source);
         fragment_shader = create_shader(GL_FRAGMENT_SHADER, fragment_shader_source);
@@ -128,7 +136,7 @@ struct roses_t : entity::entity {
 
         translations.resize(rose.meshes.size() / 3, std::vector <glm::vec3> ());
         for (auto &tr : translations) {
-            tr.reserve(roses_density * roses_density);
+            tr.reserve(roses_cnt);
         }
 
         glGenBuffers(1, &translations_vbo);
@@ -196,8 +204,33 @@ struct roses_t : entity::entity {
         }
     }
 
+    static bool in_bounds(glm::vec3 x, glm::vec3 a, glm::vec3 b) {
+        return a.x <= x.x && x.x <= b.x && \
+               a.y <= x.y && x.y <= b.y && \
+               a.z <= x.z && x.z <= b.z;
+    }
+
     void update_state(float time, float dt, std::map <SDL_Keycode, bool> &button_down) {
         (void)time; (void)dt; (void)button_down;
+
+        for (int i = 1; i < roses_density; i++) {
+            for (int j = 1; j < roses_density; j++) {
+                if (mask[i][j]) {
+                    continue;
+                }
+
+                float step = board_size / roses_density * 2;
+                glm::vec3 offset(-board_size + i * step, 0.f, -board_size + j * step);
+
+                if (in_bounds(mouse_ptr->position, bounds[0].first + offset - glm::vec3(1.f), bounds[0].second + offset + glm::vec3(1.f))) {
+                    mask[i][j] = true; continue;
+                }
+
+                if (in_bounds(papich_ptr->position, bounds[0].first + offset - glm::vec3(.5f), bounds[0].second + offset + glm::vec3(.5f))) {
+                    mask[i][j] = true; continue;
+                }
+            }
+        }
     }
 
     void draw(
@@ -224,8 +257,12 @@ struct roses_t : entity::entity {
 
         frustum fr(projection * view);
 
-        for (int i = 0; i <= roses_density; i++) {
-            for (int j = 0; j <= roses_density; j++) {
+        for (int i = 1; i < roses_density; i++) {
+            for (int j = 1; j < roses_density; j++) {
+                if (mask[i][j]) {
+                    continue;
+                }
+
                 float step = board_size / roses_density * 2;
                 glm::vec3 offset(-board_size + i * step, 0.f, -board_size + j * step);
 
@@ -291,6 +328,7 @@ struct roses_t : entity::entity {
             tr.clear();
         }
 
+        // draw LODs for demonstration
         glUniform1i(use_instanced_translation_location, false);
 
         model = glm::translate(model, glm::vec3(board_size + 1.f, 10.f, -2.f) / scale);
