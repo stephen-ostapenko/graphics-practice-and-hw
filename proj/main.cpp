@@ -32,6 +32,7 @@
 #include "mouse.hpp"
 #include "roses.hpp"
 #include "cloud.hpp"
+#include "hud.hpp"
 #include "blur_device.hpp"
 
 std::string to_string(std::string_view str) {
@@ -95,6 +96,7 @@ int main() try {
     mouse::mouse_t mouse(6);
     roses::roses_t roses(7, &papich, &mouse);
     cloud::cloud_t cloud(8);
+    hud::hud_t hud(9, &roses);
 
     blur_device::blur_device_t blur(width, height);
     glBindFramebuffer(GL_DRAW_FRAMEBUFFER, 0);
@@ -175,6 +177,7 @@ int main() try {
             mouse.update_state(time, dt, button_down);
             roses.update_state(time, dt, button_down);
             cloud.update_state(time, dt, button_down);
+            hud.update_state(time, dt, button_down);
         }
 
         float near = 0.1f;
@@ -218,6 +221,7 @@ int main() try {
         mouse.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         roses.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
         cloud.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
+        hud.draw(view, projection, camera_position, light_direction, light_color, ambient_light_color, time);
 
         if (button_down[SDLK_b]) {
             blur.show_output(width, height, time);

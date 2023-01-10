@@ -100,6 +100,7 @@ struct roses_t : entity::entity {
     bool mask[roses_density][roses_density] = { false };
     papich::papich_t *papich_ptr;
     mouse::mouse_t *mouse_ptr;
+    int roses_by_player = 0, roses_by_mouse = 0;
 
     GLuint translations_vbo;
     std::vector <std::vector <glm::vec3>> translations;
@@ -223,11 +224,15 @@ struct roses_t : entity::entity {
                 glm::vec3 offset(-board_size + i * step, 0.f, -board_size + j * step);
 
                 if (in_bounds(mouse_ptr->position, bounds[0].first + offset - glm::vec3(1.f), bounds[0].second + offset + glm::vec3(1.f))) {
-                    mask[i][j] = true; continue;
+                    roses_by_mouse++;
+                    mask[i][j] = true;
+                    continue;
                 }
 
                 if (in_bounds(papich_ptr->position, bounds[0].first + offset - glm::vec3(.5f), bounds[0].second + offset + glm::vec3(.5f))) {
-                    mask[i][j] = true; continue;
+                    roses_by_player++;
+                    mask[i][j] = true;
+                    continue;
                 }
             }
         }
