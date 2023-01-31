@@ -106,7 +106,10 @@ gltf_model load_gltf(std::filesystem::path const & path)
             result_mesh.indices = parse_accessor(primitive["indices"].GetInt());
             result_mesh.position = parse_accessor(attributes["POSITION"].GetInt());
             result_mesh.normal = parse_accessor(attributes["NORMAL"].GetInt());
-            
+
+            if (attributes.HasMember("TANGENT")) {
+                result_mesh.tangent = parse_accessor(attributes["TANGENT"].GetInt());
+            }
             if (attributes.HasMember("TEXCOORD_0")) {
                 result_mesh.texcoord = parse_accessor(attributes["TEXCOORD_0"].GetInt());
             }

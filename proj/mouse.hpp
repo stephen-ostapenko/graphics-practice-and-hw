@@ -27,17 +27,18 @@ uniform mat4x3 bones[64];
 
 layout (location = 0) in vec3 in_position;
 layout (location = 1) in vec3 in_normal;
-layout (location = 2) in vec2 in_texcoord;
-layout (location = 3) in ivec4 in_joints;
-layout (location = 4) in vec4 in_weights;
+layout (location = 2) in vec3 in_tangent;
+layout (location = 3) in vec2 in_texcoord;
+layout (location = 4) in ivec4 in_joints;
+layout (location = 5) in vec4 in_weights;
 
 out vec3 position;
 out vec3 normal;
+out vec3 tangent;
 out vec2 texcoord;
-out vec4 weights;
 
 void main() {
-    weights = in_weights;
+    vec4 weights = in_weights;
 
     mat4x3 average = bones[in_joints.x] * weights.x + \
                      bones[in_joints.y] * weights.y + \
@@ -48,7 +49,11 @@ void main() {
 
     position = (model * mat4(average) * vec4(in_position, 1.0)).xyz;
     gl_Position = projection * view * vec4(position, 1.0);
-    normal = mat3(model) * mat3(average) * in_normal;
+
+    mat3 mod_avg = mat3(model) * mat3(average);
+    normal = mod_avg * in_normal;
+    tangent = mod_avg * in_tangent;
+
     texcoord = in_texcoord;
 }
 )";
@@ -58,6 +63,7 @@ R"(#version 330 core
 
 uniform sampler2D albedo;
 uniform sampler2D roughness_texture;
+uniform sampler2D normal_texture;
 uniform vec4 color;
 uniform int use_texture;
 
@@ -70,15 +76,15 @@ layout (location = 0) out vec4 out_color;
 
 in vec3 position;
 in vec3 normal;
+in vec3 tangent;
 in vec2 texcoord;
-in vec4 weights;
 
-float specular() {
+float specular(vec3 real_normal) {
     float roughness = texture(roughness_texture, texcoord).r / 2.0;
-    float glossiness = 1.0 / roughness;
+    float glossiness = 0.1 / roughness;
     float power = 1.0 / roughness / roughness - 1.0;
 
-    vec3 reflected = 2.0 * normal * dot(normal, light_direction) - light_direction;
+    vec3 reflected = 2.0 * real_normal * dot(real_normal, light_direction) - light_direction;
 
     vec3 view_direction = normalize(camera_position - position);
     return glossiness * pow(max(0.0, dot(reflected, view_direction)), power);
@@ -87,14 +93,20 @@ float specular() {
 void main() {
     vec4 albedo_color;
 
-    if (use_texture == 1)
+    if (use_texture == 1) {
         albedo_color = texture(albedo, texcoord);
-    else
+    } else {
         albedo_color = color;
+    }
 
-    float diffuse = max(0.0, dot(normalize(normal), light_direction));
+    vec3 bitangent = cross(tangent, normal);
+    mat3 tbn = mat3(tangent, bitangent, normal);
+    vec3 normal_map = texture(normal_texture, texcoord).rgb;
+    vec3 real_normal = normalize(tbn * (normal_map * 2.0 - vec3(1.0)));
 
-    out_color = vec4(albedo_color.rgb * (light_color * diffuse + ambient_light_color + specular()), albedo_color.a);
+    float diffuse = max(0.0, dot(real_normal, light_direction));
+
+    out_color = vec4(albedo_color.rgb * (light_color * diffuse + ambient_light_color + specular(real_normal)), albedo_color.a);
 }
 )";
 
@@ -105,10 +117,10 @@ struct mouse_t : entity::entity {
     // GLuint light_direction_location, light_color_location, ambient_light_color_location;
     // std::uint32_t indices_count;
 
-    GLuint roughness_texture;
+    GLuint roughness_texture, normal_texture;
 
     GLuint camera_position_location;
-    GLuint albedo_location, color_location, use_texture_location, roughness_texture_location;
+    GLuint albedo_location, color_location, use_texture_location, roughness_texture_location, normal_texture_location;
     GLuint bones_location;
 
     gltf_model animodel;
@@ -149,6 +161,7 @@ struct mouse_t : entity::entity {
         color_location = glGetUniformLocation(program, "color");
         use_texture_location = glGetUniformLocation(program, "use_texture");
         roughness_texture_location = glGetUniformLocation(program, "roughness_texture");
+        normal_texture_location = glGetUniformLocation(program, "normal_texture");
         light_direction_location = glGetUniformLocation(program, "light_direction");
         light_color_location = glGetUniformLocation(program, "light_color");
         ambient_light_color_location = glGetUniformLocation(program, "ambient_light_color");
@@ -174,14 +187,17 @@ struct mouse_t : entity::entity {
             glBindBuffer(GL_ARRAY_BUFFER, vbo);
             setup_attribute(0, mesh.position);
             setup_attribute(1, mesh.normal);
+            if (mesh.tangent) {
+                setup_attribute(2, mesh.tangent.value());
+            }
             if (mesh.texcoord) {
-                setup_attribute(2, mesh.texcoord.value());
+                setup_attribute(3, mesh.texcoord.value());
             }
             if (mesh.joints) {
-                setup_attribute(3, mesh.joints.value(), true);
+                setup_attribute(4, mesh.joints.value(), true);
             }
             if (mesh.weights) {
-                setup_attribute(4, mesh.weights.value());
+                setup_attribute(5, mesh.weights.value());
             }
 
             result.material = mesh.material;
@@ -199,6 +215,7 @@ struct mouse_t : entity::entity {
             textures[*mesh.material.texture_path] = load_texture(path.string());
         }
         roughness_texture = load_texture(project_root + "/models/mouse/Feldmaus_Rough.png");
+        normal_texture = load_texture(project_root + "/models/mouse/Feldmaus_Normal.png");
 
         random_engine.seed(std::time(0));
     }
@@ -281,7 +298,9 @@ struct mouse_t : entity::entity {
         glUniformMatrix4fv(view_location, 1, GL_FALSE, reinterpret_cast<const float*>(&view));
         glUniformMatrix4fv(projection_location, 1, GL_FALSE, reinterpret_cast<const float*>(&projection));
         glUniform3fv(camera_position_location, 1, reinterpret_cast<const float*>(&camera_position));
+        glUniform1i(albedo_location, 0);
         glUniform1i(roughness_texture_location, 1);
+        glUniform1i(normal_texture_location, 2);
         glUniform3fv(light_direction_location, 1, reinterpret_cast<const float*>(&light_direction));
         glUniform3fv(light_color_location, 1, reinterpret_cast<const float*>(&light_color));
         glUniform3fv(ambient_light_color_location, 1, reinterpret_cast<const float*>(&ambient_light_color));
@@ -319,6 +338,9 @@ struct mouse_t : entity::entity {
 
         glActiveTexture(GL_TEXTURE1);
         glBindTexture(GL_TEXTURE_2D, roughness_texture);
+
+        glActiveTexture(GL_TEXTURE2);
+        glBindTexture(GL_TEXTURE_2D, normal_texture);
 
         glActiveTexture(GL_TEXTURE0);
         draw_meshes(false);

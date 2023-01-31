@@ -76,6 +76,8 @@ struct gltf_model
 
         accessor position;
         accessor normal;
+
+        std::optional<accessor> tangent;
         std::optional<accessor> texcoord;
         std::optional<accessor> joints;
         std::optional<accessor> weights;
